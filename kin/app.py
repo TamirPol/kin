@@ -409,6 +409,7 @@ class Kin:
         if self.mode == "listen":
             self.mode = "ask"
             self.new_conversation()
+            asyncio.create_task(self.flush())   # save what was just heard so the answer can use it
             self._ask_started = now
             log.info("MODE: ask (double-tap)")
             self.publish_status(note="Listening for your question")
@@ -586,17 +587,36 @@ class Kin:
                                 f"until you've checked with {who}. I've let them know.")
 
     async def heard(self, speaker: str, text: str, name: str = ""):
+        """A finished sentence from the band (listen mode). Never blocks the pipeline: the scam check runs on
+        the raw words right away; cleanup + storing happen in order on a background queue."""
         name = config.WEARER_NAME if speaker == "wearer" else name
-        raw = text
+        self._last_heard = time.time()
+        await self.money_watch(speaker, text)
+        if not hasattr(self, "_hear_q"):
+            self._hear_q = asyncio.Queue()
+            asyncio.create_task(self._hear_worker())
+        await self._hear_q.put((speaker, text, name))
+
+    async def _hear_worker(self):
+        while True:
+            speaker, raw, name = await self._hear_q.get()
+            try:
+                await self._store_heard(speaker, raw, name)
+            except Exception as e:
+                log.warning("could not store a sentence: %s", e)
+
+    async def _store_heard(self, speaker: str, raw: str, name: str):
+        text = raw
         try:                                           # careful AI cleanup of clear mishearings, with context
             from . import cleanup
             recent = [f"{l['name'] or l['speaker']}: {l['text']}" for l in memory.recent_lines(300)[-6:]]
-            text, fixed = await asyncio.to_thread(cleanup.clean, text, recent)
+            text, fixed = await asyncio.to_thread(cleanup.clean, raw, recent)
             if fixed:
                 log.info("(cleaned up: %r -> %r)", raw, text)
         except Exception:
             text = raw
-        await self.money_watch(speaker, text)
+        if text != raw:
+            await self.money_watch(speaker, text)      # the cleaned words may reveal money talk too
         if not name:
             p = memory.person_by_speaker(speaker)
             name = p["name"] if p else ""
@@ -646,6 +666,11 @@ class Kin:
                      len(res.get("todos", [])), len(res.get("items", [])))
 
     async def flush(self):
+        q = getattr(self, "_hear_q", None)
+        for _ in range(40):                            # let queued sentences be stored first (max ~4 s)
+            if not q or q.empty():
+                break
+            await asyncio.sleep(0.1)
         if self._chunk:
             lines, self._chunk = self._chunk, []
             await self.digest(lines)
@@ -667,11 +692,28 @@ class Kin:
             await self.router.speak(r.get("say") or "This sounds like a scam. Please don't send any money.")
 
     # ------------------------------------------------------------------ ask mode end
+    def hearing_kin(self, text: str) -> bool:
+        """Echo gate: while Kin talks out loud (and a moment after), the band hears Kin's own voice. Drop those
+        sentences, and anything that closely matches what Kin just said."""
+        if self.speaking or time.time() - getattr(self, "_spoke_at", 0) < 0.9:
+            return True
+        last = (getattr(self, "_last_said", "") or "").lower()
+        if last and time.time() - getattr(self, "_spoke_at", 0) < 6:
+            import difflib
+            if difflib.SequenceMatcher(None, last, text.lower()).ratio() > 0.6:
+                return True
+        return False
+
     def done_speaking(self):
         """Kin finished talking. In a conversation, keep listening for a follow-up (conversation mode):
         the window restarts after every answer and closes after CONVO_WINDOW s of silence, or right after
         a goodbye/thanks."""
         self.speaking = False
+        self._spoke_at = time.time()
+        try:
+            self._last_said = next((l["text"] for l in reversed(memory.recent_lines(30)) if l["speaker"] == "kin"), "")
+        except Exception:
+            pass
         self.router._last_q = ""                 # answered: no fallback needed any more
         if self.mode == "ask":
             if self._closing:

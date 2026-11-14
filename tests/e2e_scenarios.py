@@ -183,7 +183,7 @@ def s_people_items():
     cmd("w I'm putting my glasses on the nightstand."); time.sleep(1)
     cmd("3 Hi, what can I get for you today?"); time.sleep(1)
     cmd("3 That'll be four fifty. Have a nice day!")
-    time.sleep(10)
+    time.sleep(14)
     s = snap()
     sarah = next((p for p in s["people"] if p["name"].lower() == "sarah"), None)
     check("Sarah saved as daughter", sarah and any(w in (sarah["relationship"] or "").lower() for w in ("daughter", "child")),

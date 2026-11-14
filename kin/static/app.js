@@ -682,3 +682,11 @@
   refresh();
   connect();
 })();
+
+// Demo hotkeys (presenter only, nothing on screen): 1 = Sarah visits, 2 = scam call, 3 = Leo, 4 = doctor.
+// They make the laptop speakers play that person (scripts/actors.sh) so the browser can stay full-screen.
+document.addEventListener("keydown", (e) => {
+  if (e.metaKey || e.ctrlKey || e.altKey || /^(INPUT|TEXTAREA|SELECT)$/.test((e.target || {}).tagName || "")) return;
+  const who = { "1": "sarah", "2": "scam", "3": "leo", "4": "doctor" }[e.key];
+  if (who) fetch("/api/actor/" + who, { method: "POST" }).catch(() => {});
+});

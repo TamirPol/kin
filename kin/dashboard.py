@@ -184,6 +184,16 @@ def create_app() -> FastAPI:
                          3, "white_check_mark", to=[c["topic"]])
         return {"ok": ok}
 
+    @app.post("/api/actor/{name}")
+    def actor(name: str):
+        """Demo helper: the laptop speakers play another person (scripts/actors.sh). Localhost only."""
+        import subprocess
+        if name not in ("sarah", "leo", "scam", "doctor", "neighbor", "cashier"):
+            raise HTTPException(404, "unknown actor")
+        subprocess.Popen(["bash", str(config.ROOT / "scripts" / "actors.sh"), name],
+                         stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        return {"ok": True, "playing": name}
+
     @app.get("/api/summary")
     def summary_today():
         from . import summary

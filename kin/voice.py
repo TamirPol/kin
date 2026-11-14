@@ -120,6 +120,8 @@ class KinRouter(FrameProcessor):
             return                                           # partial guesses: not stored
         if isinstance(frame, TranscriptionFrame):
             text = frame.text.strip()
+            if text and self.app.hearing_kin(text):
+                return                                       # Kin's own voice coming back through the band
             if text:
                 speaker, name = self._voice_of(frame)
                 await self._on_sentence(speaker, text, name)
@@ -146,6 +148,7 @@ class KinRouter(FrameProcessor):
                 await self.app.heard(speaker, text, name)
                 self.app.mode = "ask"
                 self.app.new_conversation()
+                asyncio.create_task(self.app.flush())       # save what was just heard first
                 self.app._ask_started = time.time()
                 self.app.publish_status(note="Listening for your question")
                 rest = m.group(1).strip()
@@ -196,6 +199,7 @@ class KinRouter(FrameProcessor):
     async def speak(self, text: str):
         """Say something without the LLM (fall check, scam warning, rule answers)."""
         self.app.speaking = True
+        self.app._spoke_at = time.time()
         await self.push_frame(TTSSpeakFrame(text))
 
 
@@ -445,6 +449,7 @@ class Speaker(FrameProcessor):
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, TTSAudioRawFrame):
+            self.app.speaking = True
             self.audio_bytes += len(frame.audio)
             await asyncio.to_thread(self._play, frame)
         elif isinstance(frame, TTSTextFrame):             # what the TTS actually spoke
