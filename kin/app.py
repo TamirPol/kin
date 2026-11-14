@@ -185,6 +185,10 @@ class Kin:
         self.band.on("link", self._on_link)
         # a firmer tap threshold (default 0.8 g) so walking and gesturing don't count as double-taps
         await self.band.set_events(kinds=["tap", "double-tap", "free-fall"], tap_threshold=float(os.environ.get("KIN_TAP_G", "0.8")))
+        try:                                                   # +20 dB (max, the default) clips in a loud room
+            await self.band.set_mic_gain(float(os.environ.get("KIN_MIC_GAIN", "14")))
+        except Exception as e:
+            log.info("mic gain unchanged: %s", e)
         await self.band.configure(audio=True, events=True)     # light goes solid blue: mic is on
         if self.band.transport_kind in ("ble", "sim"):
             try:

@@ -94,10 +94,16 @@ def _keyterms() -> list[str]:
 def make_stt():
     if config.DEEPGRAM_API_KEY:
         from pipecat.services.deepgram.stt import DeepgramSTTService
+        from pipecat.transcriptions.language import Language
+        # 16 kHz mono linear16 from the band. US English only. Endpointing 400 ms + utterance end 1 s: Deepgram's
+        # default (~10 ms) cuts sentences at every tiny pause, and fragments are transcribed much worse.
         return DeepgramSTTService(
-            api_key=config.DEEPGRAM_API_KEY, sample_rate=16000, mip_opt_out=True,
-            settings=DeepgramSTTService.Settings(model="nova-3-general", diarize=True, keyterm=_keyterms(),
-                                                 smart_format=True, punctuate=True, interim_results=True),
+            api_key=config.DEEPGRAM_API_KEY, sample_rate=16000, encoding="linear16", channels=1, mip_opt_out=True,
+            settings=DeepgramSTTService.Settings(
+                model="nova-3", language=Language.EN_US, diarize=True, keyterm=_keyterms(),
+                smart_format=True, punctuate=True, numerals=True, interim_results=True,
+                endpointing=int(os.environ.get("KIN_ENDPOINTING_MS", "400")),
+                utterance_end_ms=int(os.environ.get("KIN_UTTERANCE_END_MS", "1000"))),
         )
     log.warning("No Deepgram key: using typed transcripts (type lines in the terminal).")
     return TypedSTT()
