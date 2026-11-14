@@ -27,7 +27,7 @@ GEMINI_API_KEY = key("GEMINI_API_KEY")
 STRIPE_SECRET_KEY = key("STRIPE_SECRET_KEY")          # test mode: sk_test_...
 
 OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-6-luna")
-GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-4-flash")
+GEMINI_MODEL = os.environ.get("GEMINI_MODEL", "gemini-4-hydrogen")
 
 BAND_NUMBER = int(os.environ.get("KIN_BAND", "57"))
 WEARER_NAME = os.environ.get("KIN_WEARER", "Grandpa Joe")
