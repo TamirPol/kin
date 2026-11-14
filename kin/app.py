@@ -19,6 +19,7 @@ from __future__ import annotations
 import argparse
 import asyncio
 import logging
+import os
 import statistics
 import sys
 import time
@@ -34,7 +35,7 @@ log = logging.getLogger("kin")
 
 CHUNK_PAUSE = 6.0          # seconds of quiet that end a conversation chunk
 CHUNK_MAX = 30.0           # digest at least this often while people keep talking
-WEARER_DB = -32.0          # utterances louder than this (dBFS at the wrist) count as the wearer
+WEARER_MARGIN_DB = 4.0     # the wearer's voice must be this much louder (median) than the next voice
 FALL_WAIT = 15.0           # seconds to double-tap "I'm fine" after a fall
 REMIND_AFTER = float(__import__("os").environ.get("KIN_REMIND_AFTER", "600"))  # remind of a to-do this long after it was made
 REMIND_QUIET = 20.0        # only remind when nobody has spoken for this long
@@ -54,6 +55,7 @@ class Kin:
         self.band_state = "disconnected"
         self._levels: deque = deque(maxlen=150)               # (time, dB) for the last 3 s
         self._speaker_db: dict[str, list[float]] = {}
+        self._last_wearer: str | None = None
         self._chunk: list[dict] = []
         self._chunk_started = 0.0
         self._last_heard = 0.0
@@ -238,7 +240,7 @@ class Kin:
             else:
                 recent = [db for t, db in self._levels if time.time() - t < 10]
                 peak = max(recent) if recent else -99
-                log.info("MIC sound arriving | loudest %.0f dB (quiet room about -50, talking near band about -30)", peak)
+                log.info("MIC sound arriving | loudest %.0f dB (lower = quieter; the venue is loud)", peak)
             last = n
 
     async def _on_double_tap(self, e=None):
@@ -273,19 +275,41 @@ class Kin:
 
     # ------------------------------------------------------------------ speakers
     def speaker_label(self, spk) -> str:
-        """Turns Deepgram's speaker into 'wearer' or 'speaker N', using loudness: the band
-        is on the wearer's wrist, so their voice is much louder than anyone else's."""
+        """Turns Deepgram's speaker number into 'wearer' or 'speaker N'.
+
+        Deepgram tells the voices apart; we decide which voice is the wearer by RELATIVE loudness:
+        the band is on the wearer's wrist, so their voice is consistently the loudest one. An absolute
+        threshold doesn't work (real levels vary a lot with the room and the mic gain).
+        KIN_WEARER_SPEAKER=N forces speaker N to be the wearer.
+        """
         num = getattr(spk, "number", None) if spk else None
         label = f"speaker {num}" if num is not None else "speaker ?"
         now = time.time()
-        recent = [db for t, db in self._levels if now - t < 2.5]
+        recent = sorted(db for t, db in self._levels if now - t < 3.0)
         if recent:
-            loud = statistics.quantiles(recent, n=10)[-1] if len(recent) >= 10 else max(recent)
+            loud = recent[int(len(recent) * 0.8)]                # typical loud part of this utterance
             self._speaker_db.setdefault(label, []).append(loud)
-            hist = self._speaker_db[label][-8:]
-            if statistics.median(hist) >= WEARER_DB:
-                return "wearer"
+            self._speaker_db[label] = self._speaker_db[label][-20:]
+        forced = os.environ.get("KIN_WEARER_SPEAKER")
+        if forced:
+            return "wearer" if label == f"speaker {forced}" else label
+        if label == self._wearer_label():
+            return "wearer"
         return label
+
+    def _wearer_label(self) -> str | None:
+        """The speaker whose voice is clearly the loudest at the wrist."""
+        meds = {l: statistics.median(v) for l, v in self._speaker_db.items() if len(v) >= 2 and l != "speaker ?"}
+        if not meds:
+            return None
+        ranked = sorted(meds.items(), key=lambda kv: kv[1], reverse=True)
+        if len(ranked) == 1:
+            self._last_wearer = ranked[0][0]        # only one voice so far: assume it's the wearer
+            return self._last_wearer
+        (top, a), (_, b) = ranked[0], ranked[1]
+        if a - b >= WEARER_MARGIN_DB:
+            self._last_wearer = top
+        return self._last_wearer
 
     # ------------------------------------------------------------------ listening -> memory
     async def heard(self, speaker: str, text: str):
