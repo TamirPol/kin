@@ -23,7 +23,8 @@ PROMPT = """You write the "Today so far" note that a caring adult child reads ab
 who has early memory loss and wears Kin, a listening wristband. Write 2 to 4 short, warm, plain sentences
 in the past tense about today: who he saw and anything important they said, what he did or planned,
 reminders Kin gave and whether he followed up, and anything worrying (scam calls, falls, wandering) with
-the time, stated calmly. Only state what the notes show: never comment on what's missing or unknown
+the time, stated calmly. Report each safety event exactly as listed: never say he was fine after a fall
+unless the list says he double-tapped after that fall; an unanswered fall must be mentioned clearly. Only state what the notes show: never comment on what's missing or unknown
 ("the notes didn't say..."), never mention "notes". No lists, no jargon, no speaker labels, don't invent anything, don't mention
 small talk. If very little happened, say so in one sentence.
 
@@ -47,9 +48,14 @@ def _notes() -> tuple[str, tuple]:
     for i in memory.items(10):
         if i["ts"] > start:
             out.append(f"- At {fmt(i['ts'])} his {i['item']} was {i['location']}")
-    for a in memory.alerts(20):
-        if a["ts"] > start and a["kind"] not in ("fall_ok",):
-            out.append(f"- Alert at {fmt(a['ts'])} ({a['kind']}): {a['text']}")
+    LABEL = {"scam": "POSSIBLE SCAM", "fall": "POSSIBLE FALL (Kin asked if he was okay)",
+             "fall_ok": "He double-tapped: he was fine after that fall",
+             "fall_emergency": "NO ANSWER after a possible fall: emergency alert sent to family",
+             "wander": "BAND LEFT HOME (possible wandering)", "spending": "Purchase blocked"}
+    safety = sorted((a for a in memory.alerts(40) if a["ts"] > start), key=lambda a: a["ts"])
+    if safety:
+        out.append("SAFETY EVENTS, in order (report these exactly, don't merge or soften them):")
+        out += [f"- {fmt(a['ts'])}: {LABEL.get(a['kind'], a['kind'])}" for a in safety]
     for l in lines[-40:]:
         who = "Kin" if l["speaker"] == "kin" else (l["name"] or ("him" if l["speaker"] == "wearer" else "someone"))
         out.append(f"- {fmt(l['ts'])} {who}: {l['text']}")
@@ -75,8 +81,10 @@ def _fallback(notes: str) -> str:
 def today(force: bool = False) -> dict:
     """The current summary; regenerated when memory changed and at least a minute has passed."""
     notes, key = _notes()
+    n_alerts = len(memory.alerts(100))
     with _lock:
-        fresh = _cache["key"] == key or (time.time() - _cache["ts"] < MIN_GAP and _cache["text"])
+        new_safety = n_alerts != _cache.get("alerts")    # a fall/scam/wander must show up right away
+        fresh = _cache["key"] == key or (time.time() - _cache["ts"] < MIN_GAP and _cache["text"] and not new_safety)
         if fresh and not force:
             return {"text": _cache["text"], "ts": _cache["ts"]}
     if not notes.strip():
@@ -94,5 +102,5 @@ def today(force: bool = False) -> dict:
     else:
         text = _fallback(notes)
     with _lock:
-        _cache.update(text=text, ts=time.time(), key=key)
+        _cache.update(text=text, ts=time.time(), key=key, alerts=n_alerts)
     return {"text": text, "ts": _cache["ts"]}
