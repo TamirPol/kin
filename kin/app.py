@@ -250,7 +250,18 @@ class Kin:
     async def _on_audio(self, a):
         if not self._decoder:
             return
-        pcm = self._decoder.feed(a)
+        try:
+            pcm = self._decoder.feed(a)
+        except Exception:
+            pcm = b""
+        if not pcm:                                   # decoder out of step (e.g. after a reconnect)
+            self._empty = getattr(self, "_empty", 0) + 1
+            if self._empty in (25, 250):              # 0.5 s of empties: start a fresh decoder
+                from vexo_open.audio import PcmDecoder
+                self._decoder = PcmDecoder()
+                log.warning("Audio decoder reset (empty sound from the band)")
+            return
+        self._empty = 0
         from vexo_open.audio import level_db
         db = level_db(pcm)
         self._levels.append((time.time(), db))
