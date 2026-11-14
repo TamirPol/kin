@@ -184,7 +184,7 @@ class Kin:
         self.band.on("reconnecting", self._on_reconnecting)
         self.band.on("link", self._on_link)
         # a firmer tap threshold (default 0.8 g) so walking and gesturing don't count as double-taps
-        await self.band.set_events(kinds=["tap", "double-tap", "free-fall"], tap_threshold=float(os.environ.get("KIN_TAP_G", "0.7")))
+        await self.band.set_events(kinds=["tap", "double-tap", "free-fall"], tap_threshold=float(os.environ.get("KIN_TAP_G", "0.8")))
         await self.band.configure(audio=True, events=True)     # light goes solid blue: mic is on
         if self.band.transport_kind in ("ble", "sim"):
             try:
@@ -402,7 +402,7 @@ class Kin:
         """The band's own double-tap detection struggles through the strap's fabric; two single taps within
         0.8 s count as a double-tap too."""
         now = time.time()
-        if now - getattr(self, "_single_tap_t", 0) < 0.8:
+        if now - getattr(self, "_single_tap_t", 0) < 0.6:
             self._single_tap_t = 0.0
             await self._on_double_tap(e)
         else:

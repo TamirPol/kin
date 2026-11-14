@@ -258,7 +258,8 @@ def summary_for_llm(max_chars: int = 9000) -> str:
     out += [f"- {i['item']}: {i['location']} ({_ago(i['ts'])})" for i in s["items"][:20]] or ["- nothing noted"]
     safety = [a for a in s["alerts"] if a["ts"] > day and a["kind"] in ("scam", "fall", "fall_ok", "fall_emergency", "wander")]
     if safety:
-        out.append("TODAY'S SAFETY EVENTS: " + "; ".join(f"{fmt(a['ts'])} {a['kind']}" for a in safety[:8]))
+        out.append("TODAY'S SAFETY EVENTS (already handled; only mention if asked): "
+                   + "; ".join(f"{fmt(a['ts'])} {a['kind']}" for a in safety[:8]))
     recent = [l for l in s["transcript"] if l["ts"] > now - 15 * 60 and l.get("importance", -1) != 0][-25:]
     if recent:
         out.append("RECENT CONVERSATION (last 15 min, oldest first; use it to understand follow-ups and "

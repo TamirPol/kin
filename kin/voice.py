@@ -290,8 +290,12 @@ How to answer:
 - Never invent names, places or facts. If memory doesn't have it, say so kindly and offer what you do know.
 - Answer only the latest question; don't repeat earlier answers. Thanks or goodbye: reply warmly in a few words.
 - If something isn't a question, respond naturally and briefly, like a kind friend would.
-- If they sound confused or lost ("where am I?", "what's happening?"): stay calm and reassuring, tell them who
-  they are and something familiar from today, suggest sitting down, and use alert_family so someone checks on them.
+- If, in what they say RIGHT NOW, they sound confused, lost, unwell or frightened ("where am I?", "I feel dizzy",
+  "I don't know what's happening"): stay calm and reassuring, tell them who they are and something familiar from
+  today, suggest sitting down, and use alert_family. Never use alert_family because of earlier alerts or falls -
+  those were already handled.
+- If they say they're fine or that they didn't fall, believe them, say something warm and move on. Don't bring up
+  past alerts or tell them to stay seated unless they say they're hurt.
 - If they feel lonely or sad: be warm, mention someone who cares (from memory), offer to remind them to call.
 - Money: you never buy or send anything. If someone asked them for money (even family) or they ask whether to send
   money, kindly tell them not to send anything until they've called that person back on a number they already
@@ -375,8 +379,9 @@ def make_llm_parts(app):
         FunctionSchema("set_speech_speed", "Change how fast Kin talks when they ask (slower, faster, or normal).",
                        {"change": {"type": "string", "enum": ["slower", "faster", "normal"]}}, ["change"],
                        handler=set_speech_speed),
-        FunctionSchema("alert_family", "Quietly let the family know he may need help (confused, lost, unwell, "
-                       "frightened). Don't use it for normal questions.",
+        FunctionSchema("alert_family", "Quietly let the family know he may need help, ONLY when what he says right "
+                       "now shows he is confused, lost, unwell or frightened. Never because of earlier alerts or falls, "
+                       "and never when he says he's fine.",
                        {"reason": {"type": "string"}}, ["reason"], handler=alert_family),
         FunctionSchema("complete_todo", "Mark one of the wearer's to-dos as done when they say they did it.",
                        {"text": {"type": "string", "description": "words from the to-do"}}, ["text"],
