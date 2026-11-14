@@ -7,3 +7,4 @@ snapshots/
 .pytest_cache/
 *.db
 voiceprints/
+kin.db.bak

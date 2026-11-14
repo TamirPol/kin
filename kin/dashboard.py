@@ -124,6 +124,11 @@ def create_app() -> FastAPI:
         _command_handler(cmd)
         return {"ok": True}
 
+    @app.get("/api/summary")
+    def summary_today():
+        from . import summary
+        return summary.today()
+
     @app.get("/api/voices")
     def voices():
         try:

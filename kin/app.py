@@ -335,6 +335,23 @@ class Kin:
             self.dashboard.publish({"table": "enroll", "row": {"name": name, "role": role, "state": state, "text": msg}})
         await self.router.speak(msg)
 
+    async def summary_loop(self):
+        """Keep the family's 'Today so far' note fresh: at most once a minute, only after changes."""
+        from . import summary
+        last = None
+        while True:
+            await asyncio.sleep(20)
+            if not self.dashboard:
+                continue
+            try:
+                s = await asyncio.to_thread(summary.today)
+            except Exception as e:
+                log.warning("summary: %s", e)
+                continue
+            if s["text"] != last:
+                last = s["text"]
+                self.dashboard.publish({"table": "summary", "row": s})
+
     async def mic_loop(self):
         """Every 10 s: is sound arriving from the band, and how loud (quiet room ~ -50 dB, talking ~ -30)."""
         last = 0
@@ -745,7 +762,7 @@ class Kin:
         jobs = [asyncio.create_task(self.chunk_loop()), asyncio.create_task(self.reminder_loop()),
                 asyncio.create_task(self.wander_loop()), asyncio.create_task(self.mic_loop()), asyncio.create_task(self.meter_loop()),
                 asyncio.create_task(self.ask_timeout_loop()),
-                asyncio.create_task(self.reconnect_loop())]
+                asyncio.create_task(self.reconnect_loop()), asyncio.create_task(self.summary_loop())]
         demo_task = asyncio.create_task(self.demo()) if self.args.demo else None
         if demo_task:
             jobs.append(demo_task)
