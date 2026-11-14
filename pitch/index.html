@@ -589,13 +589,13 @@ const SCENES = [
     jp.setAttribute('transform', `translate(${dx.toFixed(1)} 0)`);
     rings.style.opacity = e < ringEnd - ringStart ? 1 : Math.max(0, 1 - (e - (ringEnd - ringStart)) * 3);
   }, { at: ringStart });
-  s.cap('"This sounds like a scam. It\'s okay to hang up." Purchases lock.');
+  s.cap('"This sounds like a scam. It\'s okay to hang up."');
   s.path(bubble(480, 580, 760, 200, 416, 600), { color: BLUE, w: 6, fill: LBLUE, speed: 2800 });
   s.text('This sounds like a scam.', 512, 656, { size: 44, cps: .026 });
   s.text('It\'s okay to hang up.', 512, 716, { size: 44, cps: .026 });
   s.text('— Kin', 1220, 762, { font: 'hand', size: 38, color: BLUE, anchor: 'end' });
   lockIcon(s, 500, 846);
-  s.text('purchases locked for 30 min', 586, 884, { size: 38 });
+  s.text('family alerted', 586, 884, { size: 38 });
   s.cap('And Sarah\'s phone buzzes: "Grandpa Joe may not be OK."');
   s.arrow(1250, 680, 1440, 560, { bend: -50, color: ORANGE });
   s.text('pings family', 1352, 740, { font: 'hand', size: 40, color: ORANGE, anchor: 'middle' });
@@ -719,7 +719,7 @@ const SCENES = [
   [36, 58].forEach(r => s.path(`M${1770 + r * Math.cos(-.7)} ${680 + r * Math.sin(-.7)}A${r} ${r} 0 0 1 ${1770 + r * Math.cos(.7)} ${680 + r * Math.sin(.7)}`, { color: BLUE, w: 5, min: .1 }));
   s.path('M1700 664L1722 664L1746 642L1746 718L1722 696L1700 696Z', { fill: DARK, min: .15 });
   s.text('agent tools', 80, 704, { font: 'hand', size: 44, color: GREY });
-  const tools = [['who_is', 'find_item', 'get_todos'], ['remember', 'complete_todo', 'alert_family'], ['set_speech_speed', 'purchase']];
+  const tools = [['who_is', 'find_item', 'get_todos'], ['remember', 'complete_todo', 'alert_family'], ['set_speech_speed']];
   tools.forEach((row, r) => {
     let x = 80;
     row.forEach(name => {

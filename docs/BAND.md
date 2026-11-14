@@ -40,7 +40,7 @@ band mic ──BLE (Opus)──► kit PcmDecoder ──► BandAudioSource (Pip
                                        KinRouter (kin/voice.py)
                      LISTEN ─────────────────┴─────────────── ASK (after double-tap)
    memory.add_line → chunk (6 s pause / 30 s)        LLMUserAggregator → OpenAILLMService (tools:
-   → brain.digest → importance 0-3 → memory          who_is, find_item, get_todos, remember, purchase)
+   → brain.digest → importance 0-3 → memory          who_is, find_item, get_todos, remember, complete_todo, alert_family, set_speech_speed)
    → safety.check_scam on every sentence             → ElevenLabsTTSService → Speaker (laptop/glasses)
                                                      → LLMAssistantAggregator
 band events: double-tap → ask / "I'm fine"   free-fall → fall check
@@ -48,7 +48,7 @@ memory.py (SQLite) ◄── dashboard.py (FastAPI + WebSocket, localhost:8700) 
 ```
 
 Missing keys fall back so the app always runs: no Deepgram key → typed transcripts; no OpenAI key →
-rule answers from memory; no ElevenLabs key → the Mac's voice; no Stripe key → simulated purchases;
+rule answers from memory; no ElevenLabs key → the Mac's voice; 
 no Gemini key → vision off.
 
 ## Tuning knobs (`kin/app.py`)

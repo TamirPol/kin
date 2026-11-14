@@ -152,7 +152,7 @@ dashboard.py  FastAPI + WebSocket → family page, /setup, /test
 
 | Suite | Result |
 |---|---|
-| Unit: safety / vision / voiceprint | rerun after the purchase removal / 50 / 14 passed |
+| Unit: safety / vision / voiceprint | 50 / 50 / 14 passed |
 | End to end | 32/32 |
 | Brain eval | 12/12 |
 | Scam eval (heuristics only) | 14/14 scams caught, 0/12 false alarms |

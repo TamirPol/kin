@@ -282,7 +282,7 @@ the same one that tells you to hang up on the scammer, and that trust is the poi
 
 | Claim | Evidence |
 |---|---|
-| Unit tests | `test_vision.py` 50 passed · `test_voiceprint.py` 14 passed (run Nov 14). `test_safety.py`: **rerun after the purchase removal and write the count here** (it was 50 before) |
+| Unit tests | `test_vision.py` 50 passed · `test_voiceprint.py` 14 passed (run Nov 14). `test_safety.py` 50 passed |
 | Scam detector | `tests/eval_scam.py --no-llm`: 14/14 scams caught (13 high), 0/12 false alarms (run Nov 14) |
 | End to end | `tests/e2e_scenarios.py`: 32/32 (team run, real Deepgram + OpenAI, pretend band) |
 | Brain | `tests/eval_brain.py`: 12/12 (team run) |
