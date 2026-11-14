@@ -167,6 +167,23 @@ def create_app() -> FastAPI:
         row["subscribe_url"] = f"{notify.SERVER}/{row['topic']}"
         return row
 
+    @app.post("/api/people")
+    def add_life_person(c: ContactIn):
+        from . import settings
+        try:
+            row = settings.add_person(c.name, c.relationship)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        memory.upsert_person(row["name"], relationship=row["relationship"])
+        return row
+
+    @app.delete("/api/people/{pid}")
+    def remove_life_person(pid: str):
+        from . import settings
+        if not settings.remove_person(pid):
+            raise HTTPException(404, "no such person")
+        return {"ok": True}
+
     @app.delete("/api/contacts/{cid}")
     def remove_contact(cid: str):
         from . import settings

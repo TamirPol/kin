@@ -79,7 +79,7 @@
     <h2><span class="num">2</span>Their voice</h2>
     <p class="hint">20 seconds near the band so Kin always knows it's them. Kin also learns by itself, this just makes it reliable from the start.</p>
     <div class="body">
-      <div id="voiceKnown" hidden style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+      <div id="voiceKnown" hidden style="align-items:center;gap:12px;flex-wrap:wrap">
         <span class="state ok" id="voiceKnownText"></span>
         <button type="button" class="quiet" id="reRecord">Re-record</button>
       </div>
@@ -87,8 +87,22 @@
     </div>
   </section>
 
+  <section class="step" id="stepPeople">
+    <h2><span class="num">3</span>People in his life</h2>
+    <p class="hint">Names Kin should know from the start, and who they are. No recording needed: Kin recognises them
+      when they're mentioned or introduce themselves.</p>
+    <div class="body">
+      <ul id="peopleList"></ul>
+      <form class="row" id="peopleForm">
+        <input id="personName" placeholder="Name, e.g. Roy" autocomplete="off">
+        <input id="personRel" placeholder="Who, e.g. son" autocomplete="off" style="flex:1 1 160px">
+        <button>Add</button>
+      </form>
+    </div>
+  </section>
+
   <section class="step" id="stepContacts">
-    <h2><span class="num">3</span>Emergency contacts</h2>
+    <h2><span class="num">4</span>Emergency contacts</h2>
     <p class="hint">They get a phone alert if there's a possible scam call, a fall, or if the band leaves home. Each person installs the free <b>ntfy</b> app and opens their own link.</p>
     <div class="body">
       <ul id="contactList"></ul>
@@ -192,6 +206,18 @@ async function loadSettings() {
     li.append(who, copy, test, rm); list.append(li);
   });
   $("stepContacts").classList.toggle("done", s.contacts.length > 0);
+  const pl = $("peopleList"); pl.innerHTML = "";
+  (s.people || []).forEach((p) => {
+    const li = document.createElement("li"); li.className = "contact";
+    const who = document.createElement("div"); who.className = "who";
+    const b = document.createElement("b"); b.textContent = p.name;
+    const sp = document.createElement("span"); sp.textContent = p.relationship || "";
+    who.append(b, sp);
+    const rm = document.createElement("button"); rm.className = "quiet"; rm.textContent = "Remove";
+    rm.onclick = async () => { await fetch(`/api/people/${p.id}`, { method: "DELETE" }); loadSettings(); };
+    li.append(who, rm); pl.append(li);
+  });
+  $("stepPeople").classList.toggle("done", (s.people || []).length > 0);
 }
 async function loadVoices() {
   try {
@@ -200,9 +226,9 @@ async function loadVoices() {
     const me = named.find((x) => x.role === "wearer");
     $("stepVoice").classList.toggle("done", !!me);
     if (me && !window._reRecording) {
-      $("voiceKnown").hidden = false; $("wearerRecorder").hidden = true;
+      $("voiceKnown").hidden = false; $("voiceKnown").style.display = "flex"; $("wearerRecorder").hidden = true;
       $("voiceKnownText").textContent = `✓ Kin knows ${me.name}'s voice (learned from ${me.n_samples} samples, and it keeps learning).`;
-    } else { $("voiceKnown").hidden = true; $("wearerRecorder").hidden = false; }
+    } else { $("voiceKnown").hidden = true; $("voiceKnown").style.display = "none"; $("wearerRecorder").hidden = false; }
     $("voices").textContent = named.length ? "Voices Kin knows: " + named.map((x) => x.name + (x.role === "wearer" ? " (wears the band)" : x.role ? ` (${x.role})` : "")).join(", ") : "";
     $("stepFamily").classList.toggle("done", named.some((x) => x.role && x.role !== "wearer"));
   } catch (e) {}
@@ -211,6 +237,12 @@ $("wearerForm").onsubmit = async (e) => {
   e.preventDefault(); const name = $("wearerName").value.trim(); if (!name) return;
   const r = await fetch("/api/settings/wearer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
   $("wearerSaved").textContent = r.ok ? "Saved ✓" : "Couldn't save"; loadSettings();
+};
+$("peopleForm").onsubmit = async (e) => {
+  e.preventDefault(); const name = $("personName").value.trim(); if (!name) return;
+  await fetch("/api/people", { method: "POST", headers: { "Content-Type": "application/json" },
+                               body: JSON.stringify({ name, relationship: $("personRel").value.trim() }) });
+  $("personName").value = ""; $("personRel").value = ""; $("personName").focus(); loadSettings();
 };
 $("contactForm").onsubmit = async (e) => {
   e.preventDefault(); const name = $("contactName").value.trim(); if (!name) return;
@@ -229,7 +261,7 @@ function connect() {
   };
   ws.onclose = () => setTimeout(connect, 1500);
 }
-$("reRecord").onclick = () => { window._reRecording = true; $("voiceKnown").hidden = true; $("wearerRecorder").hidden = false; };
+$("reRecord").onclick = () => { window._reRecording = true; $("voiceKnown").hidden = true; $("voiceKnown").style.display = "none"; $("wearerRecorder").hidden = false; };
 loadSettings(); loadVoices(); connect();
 </script>
 </body>

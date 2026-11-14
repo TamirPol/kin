@@ -44,7 +44,7 @@ def get() -> dict:
     with _lock:
         d = _load()
         return {"wearer": d.get("wearer") or {"name": config.WEARER_NAME},
-                "contacts": d.get("contacts") or []}
+                "contacts": d.get("contacts") or [], "people": d.get("people") or []}
 
 
 def wearer_name() -> str:
@@ -121,3 +121,37 @@ def set_speed(value: float) -> float:
         d["voice_speed"] = value
         _save(d)
     return value
+
+
+def people() -> list[dict]:
+    """People in the wearer's life entered on /setup (name + relationship), kept across memory resets."""
+    return get()["people"]
+
+
+def add_person(name: str, relationship: str = "") -> dict:
+    name, relationship = " ".join(name.split())[:60], " ".join(relationship.split())[:40]
+    if not name:
+        raise ValueError("name is required")
+    with _lock:
+        d = _load()
+        ps = [p for p in d.get("people", []) if p["name"].lower() != name.lower()]
+        p = {"id": secrets.token_hex(4), "name": name, "relationship": relationship}
+        d["people"] = ps + [p]
+        _save(d)
+    return p
+
+
+def remove_person(pid: str) -> bool:
+    with _lock:
+        d = _load()
+        before = len(d.get("people", []))
+        d["people"] = [p for p in d.get("people", []) if p["id"] != pid]
+        _save(d)
+        return len(d["people"]) != before
+
+
+def seed_memory() -> None:
+    """Put the /setup people into Kin's memory (after a reset too), so Kin knows them from the start."""
+    from . import memory
+    for p in people():
+        memory.upsert_person(p["name"], relationship=p.get("relationship", ""))

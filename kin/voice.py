@@ -81,6 +81,8 @@ def _keyterms() -> list[str]:
     """Words Deepgram should listen for: Kin, the wearer, and everyone Kin has met (names get misheard)."""
     words = ["Kin", config.WEARER_NAME.split()[-1]]
     try:
+        from . import settings
+        words += [p["name"] for p in settings.people()] + [c["name"] for c in settings.contacts()]
         words += [p["name"] for p in memory.people()[:40]]
     except Exception:
         pass

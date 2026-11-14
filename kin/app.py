@@ -1032,6 +1032,10 @@ class Pretty(logging.Formatter):
 def main():
     from . import settings
     settings.apply()                                  # the wearer's name from /setup
+    try:
+        settings.seed_memory()                        # the people from /setup, also after a memory reset
+    except Exception:
+        pass
     ap = argparse.ArgumentParser(description="Kin: memory companion on a Vexo band")
     ap.add_argument("--band", type=int, default=config.BAND_NUMBER)
     ap.add_argument("--sim", action="store_true", help="pretend band, no hardware")
