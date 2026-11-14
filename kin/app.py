@@ -576,6 +576,12 @@ class Kin:
                 pass
 
     def start_extras(self):
+        if not (self.args.sim or self.args.demo) or os.environ.get("KIN_NTFY_IN_SIM"):
+            try:
+                from . import notify
+                log.info("Phone alerts on: subscribe to %s in the ntfy app", notify.start())
+            except Exception as e:
+                log.warning("Phone alerts off: %s", e)
         if not self.args.no_dashboard:
             try:
                 from . import dashboard
