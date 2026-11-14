@@ -255,11 +255,16 @@ def system_prompt() -> str:
 
 # --------------------------------------------------------------------------- voice out
 def make_tts():
-    if config.ELEVENLABS_API_KEY:
+    """Voice choice: KIN_VOICE=elevenlabs|openai|say forces one (tests use 'say' so they never spend
+    ElevenLabs characters); otherwise ElevenLabs if there's a key, then OpenAI, then the Mac voice."""
+    want = os.environ.get("KIN_VOICE", "").lower()
+    if want == "say":
+        return SayTTS()
+    if config.ELEVENLABS_API_KEY and want in ("", "elevenlabs"):
         from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
         return ElevenLabsTTSService(api_key=config.ELEVENLABS_API_KEY,
                                     settings=ElevenLabsTTSService.Settings(voice=config.ELEVENLABS_VOICE_ID))
-    if config.OPENAI_API_KEY and os.environ.get("KIN_TTS", "").lower() != "say":
+    if config.OPENAI_API_KEY and want in ("", "openai", "elevenlabs"):
         from pipecat.services.openai.tts import OpenAITTSService
         log.info("Voice: OpenAI text-to-speech (no ElevenLabs key).")
         return OpenAITTSService(api_key=config.OPENAI_API_KEY, settings=OpenAITTSService.Settings(
