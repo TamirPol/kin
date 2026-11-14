@@ -1,358 +1,428 @@
-// Kin family dashboard. All untrusted text goes through textContent (el() helper); never innerHTML.
+// Kin family dashboard. Turns Kin's memory into plain sentences a family member can read at a glance.
+// All untrusted text goes through textContent (el() helper); never innerHTML.
 (() => {
   "use strict";
   const $ = (id) => document.getElementById(id);
   let state = { people: [], todos: [], items: [], alerts: [], purchases: [], transcript: [], status: {}, config: {} };
   let live = false;
-  let loaded = false;                 // first snapshot rendered (so we don't animate the whole page on load)
-  const acked = new Set();            // alerts acknowledged in this browser (server also stores seen=1)
-  const newUntil = new Map();         // person id -> timestamp until which the card shows as NEW
+  let loaded = false;
+  const acked = new Set();          // alerts acknowledged in this browser (server also stores seen=1)
+  const seenKeys = new Map();       // list id -> Set of row keys already shown (to highlight new rows)
+  const openFolds = new Set();      // small-talk runs the viewer expanded
+  let convoOpen = false;
+  let convoPrimed = false;          // chat already drawn once since it was opened
 
-  const CATEGORY = {
-    small_talk: "small talk", transaction: "transaction", person_fact: "about someone", plan: "plan",
-    item_location: "where things are", health: "health", money_safety: "scam risk", emotional: "family news", other: "noted",
-  };
-  const ALERT = {
-    scam: { icon: "⚠️", label: "Possible scam", tone: "bad" },
-    fall: { icon: "🆘", label: "Possible fall", tone: "bad" },
-    fall_emergency: { icon: "🚨", label: "No response after fall", tone: "bad" },
-    fall_ok: { icon: "✅", label: "Fall check: they're okay", tone: "ok" },
-    spending: { icon: "💳", label: "Purchase blocked", tone: "bad" },
-  };
-
+  // ---------- small helpers ----------
   function el(tag, cls, text) {
     const n = document.createElement(tag);
     if (cls) n.className = cls;
     if (text !== undefined && text !== null) n.textContent = String(text);
     return n;
   }
+  function add(parent, ...kids) { for (const k of kids) if (k) parent.appendChild(typeof k === "string" ? document.createTextNode(k) : k); return parent; }
+  const now = () => Date.now() / 1000;
   function ago(ts) {
     if (!ts) return "";
-    const m = Math.floor((Date.now() / 1000 - ts) / 60);
+    const m = Math.floor((now() - ts) / 60);
     if (m < 1) return "just now";
     if (m < 60) return m + " min ago";
-    if (m < 1440) return Math.floor(m / 60) + " h ago";
-    return Math.floor(m / 1440) + " d ago";
+    if (m < 1440) { const h = Math.floor(m / 60); return h + (h === 1 ? " hour ago" : " hours ago"); }
+    const d = Math.floor(m / 1440); return d === 1 ? "yesterday" : d + " days ago";
   }
-  function clock(ts) {
-    return new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
-  }
+  function clock(ts) { return new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
   function money(c) { return "$" + (Number(c || 0) / 100).toFixed(2); }
-  function cap(s) { s = String(s || ""); return s.charAt(0).toUpperCase() + s.slice(1); }
-
-  // Keyed list rendering: reuse a node while its content signature is unchanged, so animations
-  // only play for things that are actually new or changed (not on every refresh).
-  function keyed(container, rows, key, sig, build, onChange) {
-    const old = new Map();
-    for (const n of container.children) old.set(n.dataset.key, n);
-    const nodes = rows.map((r) => {
-      const k = String(key(r)), s = sig(r);
-      const prev = old.get(k);
-      if (prev && prev.dataset.sig === s) return prev;
-      const n = build(r, prev);
-      n.dataset.key = k; n.dataset.sig = s;
-      if (loaded && onChange) onChange(n, r, prev);
-      return n;
-    });
-    // Only touch the DOM if the order or nodes changed (keeps running animations alive).
-    const same = nodes.length === container.children.length && nodes.every((n, i) => container.children[i] === n);
-    if (!same) container.replaceChildren(...nodes);
-    return nodes.length;
+  function cap(s) { s = String(s || "").trim(); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function midnight() { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; }
+  function wearer() { return state.config.wearer || "Your loved one"; }
+  function words(s) { return String(s || "").trim().split(/\s+/).filter(Boolean).length; }
+  // Kin's one-word acknowledgements ("Yes?") are not part of the story.
+  function isFiller(l) { return l.speaker === "kin" && words(l.text) <= 1; }
+  function his(rel) {
+    rel = String(rel || "").trim();
+    if (!rel) return "";
+    return /^(his|her|their|a|an|the|my)\b/i.test(rel) ? rel : "his " + rel;
   }
-  function toggleEmpty(emptyId, count) { const e = $(emptyId); if (e) e.hidden = count > 0; }
 
-  // ---------- status strip ----------
-  function renderStatus() {
+  // Mark rows that weren't on screen before so they glow briefly.
+  function fresh(listId, key, node) {
+    let s = seenKeys.get(listId);
+    if (!s) { s = new Set(); seenKeys.set(listId, s); }
+    const k = String(key);
+    if (loaded && !s.has(k)) node.classList.add("fresh");
+    s.add(k);
+    return node;
+  }
+  function fill(listId, nodes, emptyId) {
+    $(listId).replaceChildren(...nodes);
+    if (emptyId) $(emptyId).hidden = nodes.length > 0;
+  }
+
+  // ---------- names ----------
+  function speakerMap() {
+    const m = new Map();
+    for (const p of state.people) if (p && p.speaker) m.set(p.speaker, p);
+    return m;
+  }
+  function nameOf(l, map) {
+    if (l.speaker === "kin") return "Kin";
+    if (l.speaker === "wearer") return wearer();
+    const p = (map || speakerMap()).get(l.speaker);
+    if (p) return p.name;
+    if (l.name && l.name !== "Kin") return l.name;
+    return "Someone";
+  }
+  function lastHeard() {
+    for (let i = state.transcript.length - 1; i >= 0; i--) {
+      const l = state.transcript[i];
+      if (l.speaker !== "kin") return l.ts;
+    }
+    return 0;
+  }
+
+  // ---------- alerts -> plain sentences ----------
+  function isOpen(a) { return !Number(a.seen) && !acked.has(a.id); }
+  function kinSpokeNear(ts) {
+    return state.transcript.some((l) => l.speaker === "kin" && !isFiller(l) && l.ts >= ts - 3 && l.ts <= ts + 25);
+  }
+  function okAfter(fall, pool) { return pool.find((b) => b.kind === "fall_ok" && b.ts >= fall.ts && b.ts - fall.ts < 600) || null; }
+
+  // Returns {tone: 'bad'|'warn', title, details[]} or null to skip.
+  function describe(a, pool) {
+    const at = " at " + clock(a.ts);
+    const text = String(a.text || "");
+    if (a.kind === "scam") {
+      const d = [];
+      const why = /\((.+)\)/.exec(text);
+      if (why) d.push(cap(why[1].replace(/\.$/, "")) + ".");
+      if (kinSpokeNear(a.ts)) d.push("Kin warned him not to send money.");
+      const lock = /locked for (\d+) minutes/i.exec(text);
+      if (lock) d.push("Purchases are paused for " + lock[1] + " minutes.");
+      return { tone: "bad", title: "Possible scam call" + at, details: d };
+    }
+    if (a.kind === "fall") {
+      const ok = okAfter(a, pool);
+      if (ok) return { tone: "warn", title: "He may have fallen" + at,
+        details: ["Kin asked if he was OK and he tapped his band to say he's fine."] };
+      return { tone: "bad", title: "He may have fallen" + at,
+        details: ["Kin asked if he's OK and is waiting for him to tap his band."] };
+    }
+    if (a.kind === "fall_emergency") {
+      return { tone: "bad", title: "No answer after a possible fall" + at,
+        details: ["He didn't answer when Kin asked if he was OK.", "Call him or go check on him now."] };
+    }
+    if (a.kind === "fall_ok") return null;            // shown together with its fall
+    if (a.kind === "wander") {
+      const d = [/lost touch/i.test(text) ? "Kin lost touch with his band." : "His band is far from home."];
+      d.push("Call him or go look for him.");
+      return { tone: "bad", title: "He may have wandered off" + at, details: d };
+    }
+    if (a.kind === "spending") {
+      return { tone: "warn", title: "Kin stopped a purchase" + at, details: [cap(text.replace(/^Blocked:\s*/i, ""))] };
+    }
+    return { tone: "bad", title: cap(String(a.kind || "Alert").replace(/_/g, " ")) + at, details: text ? [text] : [] };
+  }
+
+  // ---------- 1. the top line ----------
+  function renderHero() {
+    const hero = $("hero"), title = $("hero-title"), sub = $("hero-sub"), det = $("hero-details"), ack = $("hero-ack");
+    const name = wearer();
+    $("wearer-top").textContent = name;
+    document.title = "Kin · " + name;
+
+    const open = state.alerts.filter(isOpen);
+    const msgs = open.map((a) => ({ a, m: describe(a, open) })).filter((x) => x.m)
+      .sort((x, y) => (x.m.tone === y.m.tone ? y.a.ts - x.a.ts : x.m.tone === "bad" ? -1 : 1));
+
+    sub.replaceChildren(); det.replaceChildren();
+    if (msgs.length) {
+      const top = msgs[0].m;
+      hero.className = "hero " + (top.tone === "bad" ? "alarm" : "warn");
+      title.textContent = top.title;
+      sub.hidden = true;
+      top.details.forEach((d) => det.appendChild(el("li", null, d)));
+      msgs.slice(1).forEach((x) => det.appendChild(el("li", "also-alert", "Also: " + x.m.title)));
+      det.hidden = det.children.length === 0;
+      ack.hidden = false;
+      ack.textContent = "I've checked on him";
+      ack.onclick = () => {
+        ack.disabled = true;
+        open.forEach((a) => { acked.add(a.id); api("POST", "/api/alert/" + Number(a.id) + "/seen"); });
+        ack.disabled = false;
+        renderAll();
+      };
+      return;
+    }
+
+    det.hidden = true; ack.hidden = true; sub.hidden = false;
     const s = state.status || {};
-    const asking = s.mode === "ask";
-    const mode = $("mode");
-    if (!live) { mode.className = "mode mode-off"; $("mode-text").textContent = "OFFLINE"; }
-    else {
-      mode.className = "mode " + (asking ? "mode-ask" : "mode-listen");
-      $("mode-text").textContent = asking ? "ASKING KIN" : "LISTENING";
+    const heard = lastHeard();
+    const heardText = heard ? "Last heard " + ago(heard) : "Nothing heard yet today";
+    const parts = [];
+    if (!live) {
+      hero.className = "hero off";
+      title.textContent = "Can't reach Kin right now";
+      parts.push("Trying to reconnect…");
+      if (heard) parts.push(heardText);
+    } else if (s.band === "disconnected") {
+      hero.className = "hero warn";
+      title.textContent = "Kin can't hear " + name + " right now";
+      parts.push("His band isn't connected", heardText);
+    } else {
+      hero.className = "hero calm";
+      title.textContent = name + " is OK";
+      parts.push(s.mode === "ask" ? "He's asking Kin something" : "Kin is listening", heardText);
     }
-    document.body.classList.toggle("asking", live && asking);
-    const band = ["connected", "sim", "disconnected"].includes(s.band) ? s.band : "disconnected";
-    $("band").className = "chip-status band-" + band;
-    $("band-text").textContent = band === "connected" ? "Band connected" : band === "sim" ? "Band simulated" : "Band offline";
-    const note = $("note");
-    note.textContent = s.note || "";
-    note.hidden = !s.note;
-    if (state.config.wearer) {
-      $("wearer").textContent = state.config.wearer;
-      document.title = "Kin · " + state.config.wearer;
-    }
-    $("limit").textContent = state.config.spend_limit_cents ? "limit " + money(state.config.spend_limit_cents) : "";
-  }
-  function renderLive() {
-    $("live").className = "chip-status " + (live ? "live-on" : "live-off");
-    $("live-text").textContent = live ? "Live" : "Reconnecting…";
-    renderStatus();
-  }
-  function tick() { $("clock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+    parts.forEach((p, i) => { if (i) sub.appendChild(el("span", "sep", "·")); sub.appendChild(el("span", null, p)); });
 
-  // ---------- Kin is speaking ----------
+    // Warnings already handled today stay visible as one quiet line.
+    const today = midnight();
+    const handled = state.alerts.filter((a) => !isOpen(a) && a.ts >= today);
+    const titles = handled.map((a) => describe(a, handled)).filter(Boolean)
+      .sort((x, y) => (x.tone === y.tone ? 0 : x.tone === "bad" ? -1 : 1)).map((m) => m.title.charAt(0).toLowerCase() + m.title.slice(1));
+    if (titles.length) {
+      det.appendChild(el("li", "earlier-line", "Earlier today: " + titles.slice(0, 3).join("; ") + ". Someone checked on him."));
+      det.hidden = false;
+    }
+  }
+
+  // ---------- Kin is telling him (live) ----------
   let speakTimer = null, speakHide = null;
   function showSpeaking(text) {
     const box = $("speaking");
     clearTimeout(speakTimer); clearTimeout(speakHide);
     $("speaking-text").textContent = text;
     box.classList.remove("out");
-    if (box.hidden) { box.hidden = false; } else { box.style.animation = "none"; void box.offsetWidth; box.style.animation = ""; }
-    const words = String(text).split(/\s+/).length;
-    const ms = Math.min(14000, Math.max(5000, words * 420 + 2000));
+    box.hidden = false;
+    const ms = Math.min(14000, Math.max(5000, words(text) * 420 + 2000));
     speakTimer = setTimeout(() => {
       box.classList.add("out");
       speakHide = setTimeout(() => { box.hidden = true; box.classList.remove("out"); }, 400);
     }, ms);
   }
 
-  // ---------- transcript ----------
-  function speakerName(l) {
-    if (l.speaker === "kin") return "Kin";
-    if (l.name) return l.name;
-    if (l.speaker === "wearer") return state.config.wearer || "Wearer";
-    return cap(l.speaker || "Someone");
-  }
-  // A question to Kin is never rated; it's the unrated line just before Kin's reply.
-  function isQuestion(l) {
-    if (Number(l.importance) >= 0 || l.speaker === "kin") return false;
-    const i = state.transcript.indexOf(l);
-    const next = i >= 0 ? state.transcript[i + 1] : null;
-    return !!(next && next.speaker === "kin");
-  }
-  function lineNode(l) {
-    let imp = Number(l.importance);
-    const isKin = l.speaker === "kin";
-    const asked = isQuestion(l);
-    if (imp < 0 && !asked && l.ts && Date.now() / 1000 - l.ts > 45) imp = 1;   // never rated: show plain
-    const cls = isKin ? "kin" : asked ? "asked" : imp < 0 ? "imp-pending" : "imp-" + Math.min(imp, 3);
-    const li = el("li", "line " + cls);
-    li.dataset.id = l.id;
-    li.appendChild(el("span", "who", speakerName(l)));
-    li.appendChild(el("span", "text", l.text));
-    if (asked) li.appendChild(el("span", "chip", "asked Kin"));
-    else if (!isKin && imp >= 1 && l.category && l.category !== "small_talk") {
-      const chip = el("span", "chip", CATEGORY[l.category] || String(l.category).replace(/_/g, " "));
-      if (l.category === "money_safety") chip.classList.add("danger");
-      li.appendChild(chip);
-    } else if (!isKin && imp === 0) {
-      li.appendChild(el("span", "chip quiet", "small talk"));
-    }
-    li.appendChild(el("span", "time", clock(l.ts)));
-    return li;
-  }
-  function nearBottom(box) { return box.scrollHeight - box.scrollTop - box.clientHeight < 120; }
-  function renderTranscript() {
-    const box = $("transcript");
-    const stick = nearBottom(box);
-    box.replaceChildren(...state.transcript.map(lineNode));
-    toggleEmpty("transcript-empty", state.transcript.length);
-    if (stick || !loaded) box.scrollTop = box.scrollHeight;
-  }
-  function addLine(row) {
-    if (state.transcript.some((l) => l.id === row.id)) return;
-    state.transcript.push(row);
-    if (state.transcript.length > 200) { state.transcript.shift(); $("transcript").firstElementChild?.remove(); }
-    const box = $("transcript");
-    const stick = nearBottom(box);
-    const n = lineNode(row);
-    n.classList.add("fresh");
-    box.appendChild(n);
-    toggleEmpty("transcript-empty", 1);
-    if (stick) box.scrollTop = box.scrollHeight;
-    if (row.speaker === "kin") {
-      const prev = state.transcript[state.transcript.length - 2];
-      if (prev && isQuestion(prev)) rateLine({ id: prev.id, importance: prev.importance, category: prev.category });
-      if (row.text) showSpeaking(row.text);
-    }
-  }
-  function rateLine(row) {
-    const l = state.transcript.find((x) => x.id === row.id);
-    if (!l) return;
-    l.importance = row.importance;
-    l.category = row.category;
-    const old = $("transcript").querySelector('[data-id="' + Number(row.id) + '"]');
-    if (old) old.replaceWith(lineNode(l));
-  }
-
-  // ---------- people ----------
-  const MAX_FACTS = 4;
-  function personCard(p, prev) {
-    const c = el("article", "card");
-    const top = el("div", "card-top");
-    top.appendChild(el("span", "avatar", (String(p.name || "?").trim().charAt(0) || "?").toUpperCase()));
-    const head = el("div", "grow");
-    head.appendChild(el("h3", null, p.name));
-    const meta = el("div");
-    if (p.relationship) meta.appendChild(el("span", "rel", p.relationship));
-    if (p.last_seen) meta.appendChild(el("span", "seen", "seen " + ago(p.last_seen)));
-    head.appendChild(meta);
-    top.appendChild(head);
-    c.appendChild(top);
-
-    const facts = p.facts || [];
-    const known = new Set(prev ? JSON.parse(prev.dataset.facts || "[]") : []);
-    c.dataset.facts = JSON.stringify(facts.map((f) => f.id));
-    if (!facts.length) c.appendChild(el("p", "no-facts", "No facts yet."));
-    else {
-      const ul = el("ul", "facts");
-      facts.slice(0, MAX_FACTS).forEach((f) => {
-        const li = el("li", loaded && prev && !known.has(f.id) ? "fresh-fact" : null);
-        li.appendChild(el("span", "grow", f.text));
-        const del = el("button", "ghost", "×");
-        del.title = "Remove this fact";
-        del.setAttribute("aria-label", "Remove fact: " + f.text);
-        del.onclick = () => api("DELETE", "/api/fact/" + Number(f.id));
-        li.appendChild(del);
-        ul.appendChild(li);
-      });
-      c.appendChild(ul);
-      if (facts.length > MAX_FACTS) c.appendChild(el("p", "more", "+ " + (facts.length - MAX_FACTS) + " more"));
-    }
-    if ((newUntil.get(p.id) || 0) > Date.now()) c.classList.add("new");
-    return c;
-  }
-  function expireNew() {
-    for (const c of $("people").querySelectorAll(".card.new")) {
-      if ((newUntil.get(Number(c.dataset.key)) || 0) <= Date.now()) c.classList.remove("new");
-    }
-  }
+  // ---------- 2. today ----------
   function renderPeople() {
-    const rows = state.people.filter(Boolean);
-    const n = keyed($("people"), rows, (p) => p.id,
-      (p) => JSON.stringify([p.name, p.relationship, ago(p.last_seen), (p.facts || []).map((f) => [f.id, f.text])]),
-      personCard,
-      (node, p, prev) => {
-        if (!prev) {
-          newUntil.set(p.id, Date.now() + 9000);
-          node.classList.add("new");
-          node.scrollIntoView({ block: "nearest", behavior: "smooth" });
-          setTimeout(expireNew, 9100);
-        } else if (!node.classList.contains("new") && prev.dataset.facts !== node.dataset.facts) {
-          node.classList.add("updated");
-        }
-      });
-    toggleEmpty("people-empty", n);
-  }
-
-  // ---------- todos ----------
-  function renderTodos() {
-    const rows = state.todos.filter((t) => !t.done);
-    const n = keyed($("todos"), rows, (t) => t.id, (t) => JSON.stringify([t.text, t.due]), (t) => {
+    const today = midnight();
+    const map = speakerMap();
+    const people = state.people.filter(Boolean);
+    const seenToday = people.filter((p) => (p.last_seen || 0) >= today);
+    const nodes = seenToday.map((p) => {
       const li = el("li");
       const body = el("div", "grow");
-      body.appendChild(el("div", "todo-text", t.text));
-      if (t.due) body.appendChild(el("span", "due", t.due));
+      const head = el("div", "big");
+      add(head, el("strong", null, p.name));
+      if (p.relationship) add(head, " (" + his(p.relationship) + ")");
+      body.appendChild(head);
+      body.appendChild(el("div", "when", "Talked with him " + ago(p.last_seen)));
+      const facts = (p.facts || []).slice(0, 4);
+      if (facts.length) {
+        const ul = el("ul", "facts");
+        facts.forEach((f) => {
+          const fl = el("li");
+          fl.appendChild(el("span", null, f.text));
+          const x = el("button", "x", "✕");
+          x.type = "button";
+          x.title = "Kin got this wrong: remove it";
+          x.setAttribute("aria-label", "Remove: " + f.text);
+          x.onclick = () => { x.disabled = true; api("DELETE", "/api/fact/" + Number(f.id)); };
+          fl.appendChild(x);
+          ul.appendChild(fl);
+        });
+        body.appendChild(ul);
+      }
       li.appendChild(body);
-      const b = el("button", "done", "Done ✓");
-      b.onclick = () => { b.disabled = true; api("POST", "/api/todo/" + Number(t.id) + "/done"); };
-      li.appendChild(b);
-      return li;
-    }, (node, t, prev) => { if (!prev) node.classList.add("fresh"); });
-    toggleEmpty("todos-empty", n);
+      return fresh("people", p.id, li);
+    });
+    fill("people", nodes, "people-empty");
+
+    // Voices Kin couldn't put a name to, and people known from before.
+    const unknown = new Set();
+    for (const l of state.transcript) {
+      if (l.ts < today || l.speaker === "kin" || l.speaker === "wearer") continue;
+      if (!map.has(l.speaker) && !l.name) unknown.add(l.speaker);
+    }
+    const bits = [];
+    if (unknown.size) bits.push("Kin also heard " + (unknown.size === 1 ? "1 voice" : unknown.size + " voices") + " it didn't recognize.");
+    const before = people.filter((p) => (p.last_seen || 0) < today);
+    if (before.length) bits.push("Kin also knows " + before.slice(0, 4).map((p) => p.name + (p.relationship ? " (" + p.relationship + ")" : "")).join(", ") + (before.length > 4 ? " and others." : "."));
+    $("people-also").textContent = bits.join(" ");
+    $("people-also").hidden = bits.length === 0;
+    if (!seenToday.length && unknown.size) $("people-empty").textContent = "No one Kin knows yet today.";
+    else $("people-empty").textContent = "No visitors yet today.";
   }
 
-  // ---------- items (latest location per item) ----------
+  function renderTodos() {
+    const rows = state.todos.filter((t) => !Number(t.done));
+    const nodes = rows.map((t) => {
+      const li = el("li");
+      const body = el("div", "grow");
+      let text = cap(t.text).replace(/\.$/, "");
+      const due = String(t.due || "").trim();
+      if (due && !text.toLowerCase().includes(due.toLowerCase())) text += " " + due;
+      body.appendChild(el("div", "big", text));
+      body.appendChild(el("div", "when", "He mentioned it " + ago(t.ts)));
+      li.appendChild(body);
+      const b = el("button", "done", "Done");
+      b.type = "button";
+      b.title = "Mark as done";
+      b.onclick = () => { b.disabled = true; api("POST", "/api/todo/" + Number(t.id) + "/done"); };
+      li.appendChild(b);
+      return fresh("todos", t.id, li);
+    });
+    fill("todos", nodes, "todos-empty");
+  }
+
   function renderItems() {
     const seen = new Set();
     const rows = state.items.filter((i) => {
       const k = String(i.item || "").toLowerCase();
       if (seen.has(k)) return false;
       seen.add(k); return true;
-    });
-    const n = keyed($("items"), rows, (i) => i.id, (i) => JSON.stringify([i.item, i.location, i.snapshot, ago(i.ts)]), (i) => {
+    }).slice(0, 6);
+    const nodes = rows.map((i) => {
       const li = el("li");
       if (i.snapshot) {
         const file = String(i.snapshot).split(/[\\/]/).pop();
-        const img = el("img");
-        img.alt = "Photo of " + i.item;
+        const img = el("img", "thumb");
+        img.alt = "Photo of the " + i.item;
         img.src = "/snapshots/" + encodeURIComponent(file);
         img.onerror = () => img.remove();
+        img.onclick = () => img.classList.toggle("zoom");
         li.appendChild(img);
       }
       const body = el("div", "grow");
-      body.appendChild(el("div", "item-name", i.item));
-      body.appendChild(el("div", "item-loc", cap(i.location)));
-      const meta = el("div", "src");
-      if (i.source === "vision") meta.appendChild(el("span", "cam", "📷 seen by camera"));
-      else meta.appendChild(el("span", null, "🎙 heard"));
-      meta.appendChild(document.createTextNode(" · " + ago(i.ts)));
-      body.appendChild(meta);
+      const head = el("div", "big");
+      add(head, el("strong", null, cap(i.item) + ":"), " " + String(i.location || "").replace(/\.$/, ""));
+      body.appendChild(head);
+      body.appendChild(el("div", "when", (i.source === "vision" ? "Kin's camera saw it " : "He said so ") + ago(i.ts)));
       li.appendChild(body);
-      return li;
-    }, (node, i, prev) => { if (!prev) node.classList.add("fresh"); });
-    toggleEmpty("items-empty", n);
-  }
-
-  // ---------- alerts: pinned until acknowledged ----------
-  function isOpen(a) { return !Number(a.seen) && !acked.has(a.id); }
-  // A fall followed by "they're okay" shows as one calm pin; acknowledging it clears both.
-  function resolvedBy(a) {
-    if (a.kind !== "fall") return null;
-    return state.alerts.find((b) => b.kind === "fall_ok" && b.ts >= a.ts && isOpen(b)) || null;
-  }
-  function acknowledge(a, node) {
-    const ids = [a.id].concat(a.kind === "fall_ok"
-      ? state.alerts.filter((f) => f.kind === "fall" && f.ts <= a.ts && isOpen(f)).map((f) => f.id) : []);
-    ids.forEach((id) => { acked.add(id); api("POST", "/api/alert/" + Number(id) + "/seen"); });
-    if (node) node.remove();
-    renderAlerts();
-  }
-  function renderAlerts() {
-    const open = state.alerts.filter((a) => isOpen(a) && !resolvedBy(a)).sort((x, y) => x.ts - y.ts);
-    const pinned = $("pinned");
-    keyed(pinned, open, (a) => a.id, (a) => JSON.stringify([a.kind, a.text]), (a) => {
-      const meta = ALERT[a.kind] || { icon: "⚠️", label: cap(String(a.kind || "alert").replace(/_/g, " ")), tone: "bad" };
-      const d = el("div", "pin" + (meta.tone === "ok" ? " calm" : ""));
-      d.setAttribute("role", "alert");
-      d.appendChild(el("span", "pin-icon", meta.icon));
-      const body = el("div", "grow");
-      body.appendChild(el("div", "pin-kind", meta.label));
-      body.appendChild(el("div", "pin-text", a.text));
-      d.appendChild(body);
-      d.appendChild(el("span", "pin-time", clock(a.ts)));
-      const b = el("button", null, "Got it ✓");
-      b.onclick = () => acknowledge(a, d);
-      d.appendChild(b);
-      return d;
+      return fresh("items", i.id, li);
     });
-    pinned.hidden = open.length === 0;
+    fill("items", nodes, "items-empty");
+  }
 
-    const done = state.alerts.filter((a) => !isOpen(a) || resolvedBy(a)).slice(0, 3);
-    const n = keyed($("history"), done, (a) => a.id, (a) => JSON.stringify([a.kind, a.text, ago(a.ts)]), (a) => {
+  // Kin's answers, paired with the question he asked; Kin's own warnings stand alone.
+  function renderKinSaid() {
+    const t = state.transcript.filter((l) => !isFiller(l));
+    const out = [];
+    t.forEach((l, i) => {
+      if (l.speaker !== "kin") return;
+      const prev = t[i - 1];
+      const q = prev && prev.speaker === "wearer" && Number(prev.importance) < 0 && l.ts - prev.ts < 40 ? prev : null;
+      out.push({ l, q });
+    });
+    const WHY = { scam: "Warning him about the scam call:", fall: "Checking on him after a possible fall:",
+      fall_ok: "When he said he was fine:", fall_emergency: "When he didn't answer:", wander: "When he may have wandered:" };
+    const why = (l) => {
+      let best = null;
+      for (const a of state.alerts) {
+        const d = Math.abs(l.ts - a.ts);
+        if (d < 4 && WHY[a.kind] && (!best || d < best.d)) best = { d, a };
+      }
+      return best ? WHY[best.a.kind] : "";
+    };
+    const nodes = out.slice(-5).reverse().map(({ l, q }) => {
       const li = el("li");
-      const meta = ALERT[a.kind];
-      li.appendChild(el("span", "pill " + (meta && meta.tone === "ok" ? "ok" : "bad"), meta ? meta.label : (a.kind || "alert")));
-      li.appendChild(el("span", "grow", a.text));
-      li.appendChild(el("span", "time", ago(a.ts)));
-      return li;
+      const body = el("div", "grow");
+      if (q) body.appendChild(el("div", "q", "He asked: “" + q.text + "”"));
+      else if (why(l)) body.appendChild(el("div", "q", why(l)));
+      body.appendChild(el("div", "a", "“" + l.text + "”"));
+      body.appendChild(el("div", "when", clock(l.ts)));
+      li.appendChild(body);
+      return fresh("kinsaid", l.id, li);
     });
-    $("history-panel").hidden = n === 0;
+    fill("kinsaid", nodes, "kinsaid-empty");
   }
 
-  // ---------- purchases ----------
   function renderPurchases() {
-    const n = keyed($("purchases"), state.purchases, (p) => p.id, (p) => JSON.stringify([p.status, p.reason]), (p) => {
-      const li = el("li");
+    const nodes = state.purchases.slice(0, 5).map((p) => {
       const ok = /^(allowed|approved|succeeded|paid|ok)$/i.test(p.status || "");
-      li.appendChild(el("span", "pill " + (ok ? "ok" : "bad"), ok ? "allowed" : (p.status || "blocked")));
+      const li = el("li");
       const body = el("div", "grow");
-      body.appendChild(el("div", null, (p.item || "") + (p.merchant ? " · " + p.merchant : "")));
-      if (p.reason) body.appendChild(el("span", "reason", p.reason));
+      const head = el("div", "big");
+      add(head, el("span", "badge " + (ok ? "ok" : "bad"), ok ? "Bought" : "Stopped"), " ",
+        cap(p.item || "something") + (p.merchant ? " from " + p.merchant : "") + ", " + money(p.amount_cents));
+      body.appendChild(head);
+      if (!ok && p.reason) body.appendChild(el("div", "detail", "Why: " + p.reason));
+      body.appendChild(el("div", "when", clock(p.ts)));
       li.appendChild(body);
-      li.appendChild(el("span", "amount", money(p.amount_cents)));
+      return fresh("purchases", p.id, li);
+    });
+    fill("purchases", nodes);
+    $("money-card").hidden = nodes.length === 0;
+  }
+
+  function renderEarlier() {
+    const done = state.alerts.filter((a) => !isOpen(a));
+    const nodes = done.map((a) => ({ a, m: describe(a, done) })).filter((x) => x.m).slice(0, 5).map(({ a, m }) => {
+      const li = el("li");
+      const body = el("div", "grow");
+      body.appendChild(el("div", "big", m.title));
+      if (m.details[0]) body.appendChild(el("div", "detail", m.details[0]));
+      body.appendChild(el("div", "when", "Someone checked on him"));
+      li.appendChild(body);
       return li;
     });
-    $("purchases-panel").hidden = n === 0;
+    fill("earlier", nodes);
+    $("earlier-card").hidden = nodes.length === 0;
+  }
+
+  // ---------- 3. the conversation ----------
+  function renderConvo() {
+    const lines = state.transcript.filter((l) => !isFiller(l));
+    const btn = $("convo-toggle");
+    btn.textContent = convoOpen ? "Hide the conversation"
+      : lines.length ? "See what was said today (" + lines.length + (lines.length === 1 ? " line)" : " lines)")
+      : "See what was said today";
+    btn.setAttribute("aria-expanded", String(convoOpen));
+    const box = $("convo");
+    box.hidden = !convoOpen;
+    if (!convoOpen) { convoPrimed = false; return; }
+
+    const map = speakerMap();
+    const nodes = [];
+    let lastWho = null, lastTs = 0;
+    for (let i = 0; i < lines.length; i++) {
+      // Two or more lines of small talk in a row fold into one line.
+      if (Number(lines[i].importance) === 0) {
+        let j = i;
+        while (j < lines.length && Number(lines[j].importance) === 0) j++;
+        const run = lines.slice(i, j);
+        const runKey = String(run[0].id);
+        if (run.length >= 2 && !openFolds.has(runKey)) {
+          const f = el("button", "fold", "+ " + run.length + " lines of small talk");
+          f.type = "button";
+          f.onclick = () => { openFolds.add(runKey); renderConvo(); };
+          const li = el("li", "msg-fold"); li.appendChild(f); nodes.push(li);
+          lastWho = null;
+          i = j - 1;
+          continue;
+        }
+      }
+      const l = lines[i];
+      const who = nameOf(l, map);
+      const cls = l.speaker === "kin" ? "kin" : l.speaker === "wearer" ? "me" : "them";
+      const li = el("li", "msg " + cls);
+      // Name and time once per turn, not on every bubble.
+      if (who !== lastWho || l.ts - lastTs > 120) li.appendChild(el("span", "who", who + " · " + clock(l.ts)));
+      li.appendChild(el("div", "bubble", l.text));
+      if (l.category === "money_safety" && Number(l.importance) >= 1) {
+        li.classList.add("danger");
+        li.appendChild(el("span", "flag", "⚠ Kin flagged this as a possible scam"));
+      }
+      // Only lines that arrive while the chat is open slide in.
+      if (convoPrimed) nodes.push(fresh("convo", l.id, li));
+      else { fresh("convo", l.id, el("li")); nodes.push(li); }
+      lastWho = who; lastTs = l.ts;
+    }
+    if (!nodes.length) nodes.push(el("li", "chat-empty", "Nothing heard yet today."));
+    box.replaceChildren(...nodes);
+    convoPrimed = true;
   }
 
   function renderAll() {
-    const box = $("transcript");
-    const stick = !loaded || nearBottom(box);
-    renderStatus(); renderTranscript(); renderPeople(); renderTodos();
-    renderItems(); renderAlerts(); renderPurchases();
-    if (stick) requestAnimationFrame(() => { box.scrollTop = box.scrollHeight; });
+    renderHero(); renderPeople(); renderTodos(); renderItems(); renderKinSaid();
+    renderPurchases(); renderEarlier(); renderConvo();
     loaded = true;
   }
 
@@ -371,38 +441,36 @@
   async function refresh() {
     try {
       const r = await fetch("/api/snapshot", { cache: "no-store" });
-      const s = await r.json();
-      state = Object.assign(state, s);
+      state = Object.assign(state, await r.json());
       renderAll();
     } catch (e) { console.warn("snapshot failed", e); }
   }
   let refreshTimer = null;
-  function scheduleRefresh() {
-    clearTimeout(refreshTimer);
-    refreshTimer = setTimeout(refresh, 120);
-  }
+  function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 150); }
 
   function onEvent(ev) {
     const t = ev.table, row = ev.row || {};
-    if (t === "status") { state.status = Object.assign({}, state.status, row); renderStatus(); }
-    else if (t === "transcript") addLine(row);
-    else if (t === "transcript_rated") rateLine(row);
-    else scheduleRefresh();
+    if (t === "status") { state.status = Object.assign({}, state.status, row); renderHero(); return; }
+    if (t === "interim" || t === "mic") return;
+    if (t === "transcript" && row.speaker === "kin" && words(row.text) > 1) showSpeaking(row.text);
+    scheduleRefresh();
   }
 
   let backoff = 500;
   function connect() {
     const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
-    ws.onopen = () => { backoff = 500; live = true; renderLive(); refresh(); };
+    ws.onopen = () => { backoff = 500; live = true; refresh(); };
     ws.onmessage = (m) => { try { onEvent(JSON.parse(m.data)); } catch (e) { console.warn(e); } };
     ws.onclose = () => {
-      live = false; renderLive();
+      live = false; renderHero();
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 8000);
     };
   }
 
-  // ---------- theme toggle (remembered per browser) ----------
+  // ---------- controls ----------
+  $("convo-toggle").addEventListener("click", () => { convoOpen = !convoOpen; renderConvo(); });
+
   function applyTheme(t) {
     if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
     else delete document.documentElement.dataset.theme;
@@ -425,9 +493,10 @@
     $("p-name").closest("details").open = false;
   });
 
-  setInterval(() => { renderPeople(); renderItems(); renderAlerts(); }, 30000); // refresh "x min ago"
+  function tick() { $("clock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+  setInterval(() => { if (loaded) renderAll(); }, 30000);    // keep "x min ago" fresh
   setInterval(tick, 5000); tick();
-  renderLive();
+  renderHero();
   refresh();
   connect();
 })();
