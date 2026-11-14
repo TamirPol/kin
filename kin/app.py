@@ -112,7 +112,17 @@ class Kin:
             self.sim = SimTransport(self.args.band, auto_tap=False, audio_packets=packets)
             kw["transport"] = self.sim
         try:
-            self.band = await Band.connect(self.args.band, auto_reconnect=not (self.args.sim or self.args.demo), **kw)
+            tries = 12 if os.environ.get("KIN_RELOAD") and not self.sim else 1
+            for attempt in range(tries):
+                try:
+                    self.band = await Band.connect(self.args.band, auto_reconnect=not (self.args.sim or self.args.demo), **kw)
+                    break
+                except Exception as e:
+                    if attempt == tries - 1:
+                        raise
+                    log.info("Looking for band %s… (double-tap it if this takes long)", self.args.band)
+                    self.publish_status(note="Looking for the band… double-tap it")
+                    await asyncio.sleep(3)
         except Exception as e:
             log.error("Could not connect to band %s: %s", self.args.band, e)
             self.band_state = "disconnected"
@@ -550,7 +560,9 @@ class Kin:
         finally:
             for j in jobs:
                 j.cancel()
-            if self.band:
+            # Under the auto-reloader, leave the link to drop instead of closing it: a dropped band stays
+            # findable for 2 minutes, so the restarted Kin reconnects without anyone double-tapping.
+            if self.band and not os.environ.get("KIN_RELOAD"):
                 try:
                     await self.band.disconnect()
                 except Exception:
