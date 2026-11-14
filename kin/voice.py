@@ -35,6 +35,10 @@ NOT_FINE = _re.compile(r"^\W*no\b|\bnot (fine|ok(ay)?|alright|all right|good)\b|
                        r"\b(hurt|pain|bleeding|dizzy)\b|\bcall (someone|sarah|my|911|an ambulance)", _re.I)
 STOP = _re.compile(r"^\W*(?:(?:okay|ok|kin|hey kin)[\s,]+)?(stop|stop it|stop talking|be quiet|quiet|shush|shut up|enough|"
                    r"that'?s enough|never ?mind|cancel|forget it)\W*$|\bstop talking\b|\bbe quiet\b|\bshut up\b", _re.I)
+SAID_FELL = _re.compile(r"\bi(?:'ve| have| just)?\s*(fell|fallen|slipped|tripped|fell down|fell over)\b|\bi can'?t get up\b|"
+                        r"\bi(?:'m| am) hurt\b|\bi hurt (my|myself)\b|\bi'?m on the floor\b", _re.I)
+NEGATED_FELL = _re.compile(r"\b(didn'?t|did not|never|haven'?t)\s+(fall|fell|slip|trip)|\bi'?m not hurt\b|\bif i fall\b|"
+                           r"\bfell (asleep|for|behind|in love|apart|off the wagon)\b", _re.I)
 FILLER = _re.compile(r"^\W*(yeah|yes|yep|yup|okay|ok|mm+|hmm+|uh+|um+|uh huh|right|sure|alright|cool|wow|oh)\W*$", _re.I)
 
 
@@ -154,6 +158,9 @@ class KinRouter(FrameProcessor):
             await self.stop_talking()
             return
         woke = False                                         # "Hey Kin, ..." is always the wearer talking to Kin
+        if speaker != "kin" and SAID_FELL.search(text) and not NEGATED_FELL.search(text) and not self.app.fall_check_active():
+            await self.app.reported_fall(text)               # "I fell" -> the fall alert, not a generic one
+            return
         if self.app.fall_check_active() and NOT_FINE.search(text):
             await self.app.fall_not_ok(text)                 # "no / I'm not fine / help": family alerted now
             return

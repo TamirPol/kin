@@ -452,6 +452,17 @@ class Kin:
                                            f"{config.WEARER_NAME} now.")
         await self.router.speak("I'm letting your family know.")
 
+    async def reported_fall(self, said: str):
+        """He says he fell / can't get up / is hurt: that's a fall emergency, alert the family now."""
+        if time.time() - getattr(self, "_reported_fall_t", 0) < 60:
+            return
+        self._reported_fall_t = time.time()
+        memory.add_alert("fall_emergency", f"{config.WEARER_NAME} said he fell or is hurt (\"{said[:60]}\"). "
+                                           "Please check on him now.")
+        log.warning("Fall reported by voice: %s", said)
+        self.mode = "listen"
+        await self.router.speak("I'm getting your family now. Stay where you are, help is coming.")
+
     def fall_check_active(self) -> bool:
         return bool(self._fall_task and not self._fall_task.done())
 

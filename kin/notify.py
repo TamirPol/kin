@@ -28,7 +28,7 @@ ENV_FILE = config.ROOT / ".env"
 MESSAGES = {
     "scam": ("{w} may not be OK", "Possible scam call. Kin warned him not to send any money.", 5, "rotating_light"),
     # "fall" itself sends nothing: Kin asks first and only "fall_emergency" (no answer) alerts the phones
-    "fall_emergency": ("{w} needs a check-in now", "No answer after a possible fall. Please call or visit.", 5,
+    "fall_emergency": ("{w} needs a check-in now", "He may have fallen and needs help. Please call or visit now.", 5,
                        "sos"),
     "wander": ("{w} may have wandered off", "His band lost touch with home.", 4, "walking"),
     "confused": ("{w} may need you", "He sounded confused or unwell. Kin is keeping him calm; please call him.", 4,
