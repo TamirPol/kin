@@ -78,7 +78,8 @@ Also extract:
 - facts: short, plain sentences {wearer} would want recalled ("Sarah is moving to Oakland next week"),
   with `about` = the person's name or "".
 - todos: plans or promises {wearer} made or must remember ("Call the dentist", due "tomorrow").
-  Never turn a suspicious request (money, gift cards, bail, secrecy) into a to-do.
+  Never turn a suspicious request (money, gift cards, bail, secrecy) into a to-do. Never make a to-do from asking
+  Kin to tell/message/call someone ("Kin, tell Abigail I'll be late") - Kin does that right away.
 - items: where {wearer}'s things are, whoever put them there or said so ("keys" -> "kitchen drawer";
   "Son, you parked the car in D2" -> "car" -> "parking spot D2"), only from what was said. Short
   or misheard phrasing is common: use the surrounding lines to understand it ("In D two?" = "D2").

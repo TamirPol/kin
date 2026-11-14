@@ -23,7 +23,9 @@ PROMPT = """You write the "Today so far" note that a caring adult child reads ab
 who has early memory loss and wears Kin, a listening wristband. Write 2 to 4 short, warm, plain sentences
 in the past tense about today: who he saw and anything important they said, what he did or planned,
 reminders Kin gave and whether he followed up, and anything worrying (scam calls, falls, wandering) with
-the time, stated calmly. Report each safety event exactly as listed: never say he was fine after a fall
+the time, stated calmly. Group repeated events instead of listing every time ("several possible falls between 2:40 and 3:10; he said he
+was fine after most, but two went unanswered and the family was alerted"); give at most two exact times. Report each
+safety event truthfully: never say he was fine after a fall
 unless the list says he double-tapped after that fall; an unanswered fall must be mentioned clearly. Only state what the notes show: never comment on what's missing or unknown
 ("the notes didn't say..."), never mention "notes". No lists, no jargon, no speaker labels, don't invent anything, don't mention
 small talk. If very little happened, say so in one sentence.

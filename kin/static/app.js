@@ -174,7 +174,9 @@
     const settled = (a) => a.kind === "fall" && (okAfter(a, state.alerts) ||
       state.alerts.some((b) => b.kind === "fall_emergency" && b.ts >= a.ts && b.ts - a.ts < 90));
     const rank = (x) => (URGENT.has(x.a.kind) ? 0 : x.m.tone === "bad" ? 1 : 2);
-    const msgs = open.filter((a) => !settled(a)).map((a) => ({ a, m: describe(a, open) })).filter((x) => x.m)
+    // an everyday message ("I'll be late for dinner") isn't a worry: shown calmly below, never red
+    const calmMsg = (a) => a.kind === "message" && !/know where|lost|help|hurt|scared|fell|confused/i.test(String(a.text || ""));
+    const msgs = open.filter((a) => !settled(a) && !calmMsg(a)).map((a) => ({ a, m: describe(a, open) })).filter((x) => x.m)
       .sort((x, y) => (rank(x) === rank(y) ? y.a.ts - x.a.ts : rank(x) - rank(y)));
 
     sub.replaceChildren(); det.replaceChildren();
@@ -233,6 +235,12 @@
     }
     parts.forEach((p, i) => { if (i) sub.appendChild(el("span", "sep", "·")); sub.appendChild(el("span", null, p)); });
 
+    // Everyday messages from him: one calm line each (newest first), no alarm.
+    open.filter(calmMsg).sort((x, y) => y.ts - x.ts).slice(0, 2).forEach((a) => {
+      det.appendChild(el("li", "earlier-line", "💬 " + String(a.text || "").replace(/^.*?sent a message to /, "Message to ") +
+                         " (" + clock(a.ts) + ")"));
+      det.hidden = false;
+    });
     // Warnings already handled today stay visible as one quiet line.
     const today = midnight();
     const handled = state.alerts.filter((a) => !isOpen(a) && a.ts >= today);
