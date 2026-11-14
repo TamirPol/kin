@@ -522,7 +522,7 @@ class Kin:
             return b""
 
     def voice_label(self, spk, result=None) -> tuple[str, str]:
-        """(speaker, name) for a finished sentence: a vote between three signals, so no single noisy one wins.
+        """(speaker, name) for a finished sentence. One question: is this the wearer's voice, yes or no?
           voice    - voiceprint match (strong; survives restarts and days)
           loudness - the wearer's voice is the loudest at the wrist
           context  - same Deepgram voice as the last wearer sentence; talking to Kin in a conversation
@@ -547,32 +547,25 @@ class Kin:
         else:
             m = self._dg_voice.get(dg)                        # short clip: same Deepgram voice as last time
         m = m or {}
-        if not fresh and self.mode != "ask":
-            prev = self._dg_decision.get(dg)                  # a short line ("For free?") is too short to recognise:
-            if prev:                                          # keep what this voice was last decided to be,
-                return prev                                   # else assume the wearer (the band is on their wrist)
-            if not m:
-                return "wearer", config.WEARER_NAME
         thr = getattr(voiceprint, "THRESHOLD", 0.5) if voiceprint else 0.5
         score = m.get("score") or 0.0
+        wearer_known = bool(voiceprint and voiceprint.wearer())
 
-        vote, why = 0.0, []
-        if m.get("is_wearer") or m.get("role") == "wearer":
-            vote += 3 if score >= thr + 0.1 else 2; why.append("voice=wearer")
-        elif m.get("name") and score >= thr + 0.15:
-            vote -= 3; why.append(f"voice={m['name']}")
-        elif m.get("name"):
-            vote -= 1; why.append(f"voice~{m['name']}")
-        if loud_label == "wearer":
-            vote += 1.5; why.append("loudest")
-        else:
-            vote -= 1; why.append("quieter")
-        if dg and dg == self._wearer_dg and time.time() - self._wearer_dg_t < 20:
-            vote += 1; why.append("same voice as before")
-        if self.mode == "ask":
-            vote += 0.75; why.append("talking to Kin")
-        is_wearer = vote > 0
-        log.debug("speaker vote %.1f (%s) -> %s", vote, ", ".join(why), "wearer" if is_wearer else m.get("id"))
+        # One simple question: is this the wearer's voice, yes or no? (Names of others come from what is said.)
+        if fresh and wearer_known:
+            # the closest known voice is the wearer's: yes, even if the match is a bit weak in a noisy room
+            is_wearer = bool((m.get("is_wearer") or m.get("role") == "wearer") and score >= max(0.3, thr - 0.15))
+            why = [f"voiceprint {'matches' if is_wearer else 'does not match'} the wearer ({score:.2f})"]
+        elif fresh:                                           # no wearer voice yet: loudness decides, and teaches it
+            is_wearer = loud_label == "wearer"
+            why = ["no wearer voiceprint yet: loudness"]
+        else:                                                 # too short to recognise: keep this voice's last label
+            prev = self._dg_decision.get(dg)
+            if prev:
+                return prev
+            is_wearer = loud_label == "wearer" and not wearer_known
+            why = ["short clip, unknown voice"]
+        log.debug("speaker: %s -> %s", ", ".join(why), "wearer" if is_wearer else m.get("id") or loud_label)
 
         if fresh and dg:                                      # remember this voice's decision for short lines
             self._dg_decision[dg] = ("wearer", config.WEARER_NAME) if is_wearer else \
