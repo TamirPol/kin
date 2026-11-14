@@ -232,6 +232,7 @@ class Kin:
     # ------------------------------------------------------------------ ask mode end
     def done_speaking(self):
         self.speaking = False
+        self.router._last_q = ""                 # answered: no fallback needed any more
         if self.mode == "ask" and not self.router._question and getattr(self, "_answered", False):
             self.mode = "listen"
             self.publish_status()

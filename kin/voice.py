@@ -18,7 +18,7 @@ import subprocess
 import time
 
 from pipecat.frames.frames import (
-    EndFrame, Frame, InputAudioRawFrame, InterimTranscriptionFrame, LLMFullResponseEndFrame,
+    EndFrame, ErrorFrame, Frame, InputAudioRawFrame, InterimTranscriptionFrame, LLMFullResponseEndFrame,
     LLMMessagesAppendFrame, LLMTextFrame, StartFrame, TranscriptionFrame, TTSAudioRawFrame,
     TTSSpeakFrame, TTSStoppedFrame,
 )
@@ -85,9 +85,15 @@ class KinRouter(FrameProcessor):
         self.app = app
         self._question: list[str] = []
         self._ask_timer: asyncio.Task | None = None
+        self._last_q = ""
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
+        if isinstance(frame, ErrorFrame) and direction == FrameDirection.UPSTREAM and self._last_q:
+            q, self._last_q = self._last_q, ""               # the LLM failed: never leave the wearer hanging
+            log.warning("LLM failed (%s); answering from memory.", str(frame.error)[:120])
+            await self.speak(rule_answer(q))
+            return
         if isinstance(frame, InterimTranscriptionFrame):
             return                                           # partial guesses: ignore
         if isinstance(frame, TranscriptionFrame):
@@ -123,6 +129,7 @@ class KinRouter(FrameProcessor):
         memory.add_line("wearer", question, name=config.WEARER_NAME)
         self.app.publish_status(note=f"Question: {question}")
         if config.OPENAI_API_KEY:
+            self._last_q = question
             self.app.refresh_system_prompt()
             await self.push_frame(LLMMessagesAppendFrame(
                 messages=[{"role": "user", "content": question}], run_llm=True))
@@ -191,8 +198,10 @@ def make_llm_parts(app):
     from pipecat.processors.aggregators.llm_response_universal import LLMContextAggregatorPair
     from pipecat.services.openai.llm import OpenAILLMService
 
+    # gpt-6 models refuse tool calls on chat completions unless reasoning is off; it's also faster.
     llm = OpenAILLMService(api_key=config.OPENAI_API_KEY,
-                           settings=OpenAILLMService.Settings(model=config.OPENAI_MODEL))
+                           settings=OpenAILLMService.Settings(model=config.OPENAI_MODEL,
+                                                              extra={"reasoning_effort": "none"}))
 
     async def who_is(params):
         name = params.arguments.get("name", "")
