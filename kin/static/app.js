@@ -462,8 +462,8 @@
     const nodes = [];
     let lastWho = null, lastTs = 0;
     for (let i = 0; i < lines.length; i++) {
-      // Two or more lines of small talk in a row fold into one line.
-      if (Number(lines[i].importance) === 0) {
+      // Two or more lines of small talk in a row fold into one line (never the 10 newest lines).
+      if (i >= 10 && Number(lines[i].importance) === 0) {
         let j = i;
         while (j < lines.length && Number(lines[j].importance) === 0) j++;
         const run = lines.slice(i, j);

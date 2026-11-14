@@ -43,6 +43,7 @@ REMIND_QUIET = 20.0        # only remind when nobody has spoken for this long
 REMIND_MIN_AGE = float(__import__("os").environ.get("KIN_REMIND_MIN_AGE", "600"))  # never remind about something just said
 WANDER_RSSI = -88          # dBm: weaker than this means the band is far from the laptop/base
 WANDER_SECONDS = float(__import__("os").environ.get("KIN_WANDER_SECONDS", "10"))  # weak signal this long -> alert (link lost: 3x)
+WEARER_MATCH = float(__import__("os").environ.get("KIN_WEARER_MATCH", "0.3"))  # voiceprint score that means "the wearer"
 CONVO_WINDOW = 9.0         # after Kin answers, keep listening this long for a follow-up
 WAKE = __import__("re").compile(r"^\W*(?:(?:hey|hi|okay|ok|hello)[\s,]+)?(?:kin|ken|kim|kinn|kenn)\b[\s,.!?]*(.*)$", __import__("re").I)
 CLOSERS = __import__("re").compile(r"\b(thank you|thanks|thank u|bye|goodbye|that'?s all|that'?s it|never ?mind|ok(?:ay)? cool|got it)\b", __import__("re").I)
@@ -559,7 +560,7 @@ class Kin:
         # One simple question: is this the wearer's voice, yes or no? (Names of others come from what is said.)
         if fresh and wearer_known:
             # the closest known voice is the wearer's: yes, even if the match is a bit weak in a noisy room
-            is_wearer = bool((m.get("is_wearer") or m.get("role") == "wearer") and score >= max(0.3, thr - 0.15))
+            is_wearer = bool((m.get("is_wearer") or m.get("role") == "wearer") and score >= WEARER_MATCH)
             why = [f"voiceprint {'matches' if is_wearer else 'does not match'} the wearer ({score:.2f})"]
         elif fresh:                                           # no wearer voice yet: loudness decides, and teaches it
             is_wearer = loud_label == "wearer"
@@ -570,7 +571,7 @@ class Kin:
                 return prev
             is_wearer = loud_label == "wearer" and not wearer_known
             why = ["short clip, unknown voice"]
-        log.debug("speaker: %s -> %s", ", ".join(why), "wearer" if is_wearer else m.get("id") or loud_label)
+        log.info("VOICE %s -> %s", ", ".join(why), "you (wearer)" if is_wearer else "someone else")
 
         if fresh and dg:                                      # remember this voice's decision for short lines
             self._dg_decision[dg] = ("wearer", config.WEARER_NAME) if is_wearer else \
@@ -995,7 +996,8 @@ class Pretty(logging.Formatter):
     STYLE = [("HEARD ", "\033[37m  👂 "), ("KIN SAYS: ", "\033[1;32m  🗣  KIN (out loud): "),
              ("ASK: ", "\033[1;36m  ❓ YOU ASKED: "), ("MODE: ask", "\033[1;36m  👆 double-tap: asking mode"),
              ("MEMORY ", "\033[35m  🧠 saved: "), ("SCAM", "\033[1;31m  🚨 SCAM"), ("REMIND", "\033[33m  ⏰ REMIND"),
-             ("WANDER", "\033[1;31m  🚶 WANDER"), ("MIC ", "\033[90m  🎚  ")]
+             ("WANDER", "\033[1;31m  🚶 WANDER"), ("MIC ", "\033[90m  🎚  "),
+             ("VOICE ", "\033[36m  🎙  ")]
 
     def format(self, record):
         msg = record.getMessage()
