@@ -203,5 +203,6 @@ def save(res: dict, lines: list[dict]) -> None:
     for t in ([] if scam else res.get("todos", [])):    # never a to-do from a scam call
         memory.add_todo(t["text"], t.get("due", ""))
     for i in res.get("items", []):
-        memory.add_item(i["item"], i["location"], source="voice")
+        from .vision import normalize_item              # "car keys" and "keys" are the same thing
+        memory.add_item(normalize_item(i["item"]) or i["item"], i["location"], source="voice")
     memory.rate_lines([l["id"] for l in lines if "id" in l], int(res.get("importance", 0)), res.get("category", ""))

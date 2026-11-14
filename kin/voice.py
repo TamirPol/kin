@@ -160,7 +160,8 @@ def rule_answer(q: str) -> str:
     ql = q.lower()
     m = re.search(r"where (?:are|is|did i (?:put|leave)) (?:my |the )?([a-z ]+?)\??$", ql)
     if m:
-        it = memory.find_item(m.group(1).strip().rstrip("s")) or memory.find_item(m.group(1).strip())
+        from .vision import where_is
+        it = where_is(m.group(1).strip())
         return (f"Your {it['item']} {'are' if it['item'].endswith('s') else 'is'} {it['location']}."
                 if it else f"I haven't seen where your {m.group(1)} went yet.")
     if "who" in ql:
@@ -210,7 +211,8 @@ def make_llm_parts(app):
         await params.result_callback(p or last_other_person() or {"unknown": True})
 
     async def find_item(params):
-        await params.result_callback(memory.find_item(params.arguments["item"]) or {"not_seen": True})
+        from .vision import where_is
+        await params.result_callback(where_is(params.arguments["item"]) or {"not_seen": True})
 
     async def get_todos(params):
         await params.result_callback({"todos": memory.todos()})

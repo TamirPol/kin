@@ -6,7 +6,9 @@ Public API (all synchronous, safe to call from worker threads):
   parse_purchase_request(text)              -> None | {'item','merchant','amount_cents'}
   tool_schemas()                            -> OpenAI function definitions (purchase)
   handle_tool_call(name, arguments)         -> dict result for a tool call from the voice agent
-Helpers: scam_lock_active(), scam_lock_remaining(), clear_scam_lock(), spent_today_cents(), reset()
+  purchase_summary()                        -> dashboard dict (spent today vs cap, last purchases, lock)
+Helpers: scam_lock_active(), scam_lock_remaining(), clear_scam_lock(), spent_today_cents(),
+         family_contact(), reset()
 
 Design: every decision has a deterministic heuristic path, so Kin works with no keys.
 An LLM (if OPENAI_API_KEY is set) only confirms / refines; it can never loosen the
@@ -33,7 +35,8 @@ _MERCHANT_ALIASES = {
 }
 DAILY_CAP_MULTIPLIER = 3
 SCAM_LOCK_SECONDS = 30 * 60
-FAMILY_CONTACT = os.environ.get("KIN_FAMILY_CONTACT", "your family")   # e.g. "Sarah"
+FAMILY_CONTACT = os.environ.get("KIN_FAMILY_CONTACT", "")   # optional override, e.g. "Sarah"
+_CHILD_RX = re.compile(r"\b(?:daughter|son|child|kid)\b", re.I)   # "grandson" deliberately doesn't match
 
 BLOCKED_CATEGORIES = {
     "gift card": r"gift ?cards?|itunes|google play|steam card|apple card|prepaid (?:debit |visa )?cards?|vanilla ?visa|green ?dot",
@@ -99,6 +102,24 @@ def _money(cents: int) -> str:
     return f"${cents / 100:,.2f}"
 
 
+def family_contact() -> str:
+    """Who Kin tells the wearer it has let know: env override, else a daughter/son from memory, else 'your family'."""
+    if FAMILY_CONTACT.strip():
+        return FAMILY_CONTACT.strip()
+    try:
+        for p in memory.people():                       # most recently seen first
+            if p and _CHILD_RX.search(p.get("relationship") or "") and (p.get("name") or "").strip():
+                return p["name"].strip()
+    except Exception:
+        pass
+    return "your family"
+
+
+def _cap(name: str) -> str:
+    """'your family' -> 'Your family' at the start of a sentence; names unchanged."""
+    return name[:1].upper() + name[1:]
+
+
 # ---------------------------------------------------------------- LLM helper
 def _llm_json(system: str, user: str, schema: dict, name: str, timeout: float = 8.0) -> dict | None:
     """Structured-output call. Returns parsed dict, or None on any failure (caller falls back)."""
@@ -127,25 +148,49 @@ SIGNALS = {
                 r"western union|moneygram", r"bitcoin|crypto|btc atm|bitcoin atm", r"\bbail\b",
                 r"send (?:me |us |him |her )?(?:the )?(?:money|cash|\$?\d)", r"(?:pay|send).{0,30}(?:fee|fine|deposit)",
                 r"zelle|venmo|cash ?app", r"money order", r"(?:\$|dollars?\b).{0,40}(?:right away|today|now)",
-                r"withdraw (?:some )?(?:cash|money)", r"(?:pay|cover).{0,20}(?:lawyer|attorney|hospital bill)"),
+                r"withdraw (?:some )?(?:cash|money)", r"(?:take|get) out (?:some )?(?:cash|money)",
+                r"(?:pay|cover).{0,20}(?:lawyer|attorney|hospital bill)",
+                r"\$\s?\d[\d,]*(?:\.\d\d)? (?:processing |repair |release )?(?:fee|fine|deposit|charge)",
+                r"green ?dot|prepaid (?:visa |debit )?card|vanilla ?(?:visa|card)", r"courier|pick (?:it|the money|the cash) up",
+                r"(?:transfer|move) (?:all )?(?:your|the|my)? ?(?:savings|money|funds)", r"safe account", r"wallet address|to my wallet"),
     # asks for identity / account secrets
     "sensitive": _P(r"card number", r"credit card|debit card", r"social security number|\bssn\b|social security #",
-                    r"bank account|account number|routing number", r"\bpin\b", r"password",
-                    r"verification code|security code|one[- ]time code|\bcvv\b", r"medicare (?:number|card|id)"),
+                    r"bank account|account number|routing number", r"password",
+                    r"(?:read|tell|give|say|need)\b.{0,20}\bpin\b|\bpin\b.{0,20}(?:to me|over the phone)|pin number",
+                    r"verification code|security code|one[- ]time code|\bcvv\b", r"medicare (?:number|id)\b",
+                    r"(?:read|give|tell) me (?:the |your )?(?:\w+[- ]digit )?code", r"code (?:we|i) (?:just )?(?:texted|sent)",
+                    r"(?:read|give|confirm|verify) (?:me )?(?:your |the )?(?:medicare|social security|card|account) (?:number|card)",
+                    r"take control|remote access|anydesk|teamviewer|screen ?share"),
     # pretends to be an authority or a relative in trouble
     "impersonation": _P(r"\birs\b|internal revenue", r"medicare", r"social security (?:administration|office)",
                         r"(?:this is|i'?m) (?:officer|detective|sergeant|agent)", r"police|sheriff|warrant",
                         r"(?:in|from) jail|arrested|lawyer|attorney|public defender",
                         r"grandson|granddaughter|grandma it'?s me|grandpa it'?s me|it'?s your grand",
-                        r"tech support|microsoft|apple support|your computer (?:has|is)|virus",
+                        r"tech(?:nical)? support|microsoft|apple support|your computer (?:has|is)|virus",
+                        r"fraud department|suspicious (?:charges|activity)|(?:account|number) has been (?:suspended|compromised|hacked)",
+                        r"pg&e|electric company|power (?:will be|is going to be) (?:shut|cut) off",
+                        r"customer service|refunded you|customs|financial advisor|investment opportunity|once[- ]in[- ]a[- ]lifetime",
+                        r"my darling|my love\b|i miss you so much",
                         r"you(?:'ve| have) won|lottery|sweepstakes|prize", r"your (?:bank|account) (?:has been|is) (?:locked|frozen|compromised)"),
     # urgency, secrecy, threats
     "pressure": _P(r"don'?t tell (?:anyone|anybody|mom|dad|my (?:mom|dad|parents))", r"keep (?:this|it) (?:between us|a secret|quiet)",
-                   r"\bsecret\b", r"right now|right away|immediately|as soon as possible|\basap\b|hurry|urgent|emergency",
-                   r"today only|within the hour|in the next (?:hour|\d+ minutes)|before (?:it'?s too late|tonight)",
-                   r"or (?:you'?ll|you will|they'?ll) (?:be arrested|go to jail|lose)", r"suspended|frozen|final notice",
-                   r"stay on the (?:line|phone)|don'?t hang up"),
+                   r"\bsecret\b", r"or (?:you'?ll|you will|they'?ll) (?:be (?:arrested|reported)|go to jail|lose)",
+                   r"suspended|frozen|final notice|shut off|cut off|warrant", r"stay on the (?:line|phone)|don'?t hang up",
+                   r"(?:it )?has to be today|you must pay|in the next (?:hour|\d+ minutes)|in (?:thirty|\d+) minutes"),
+    # generic urgency words: weak on their own (TV news says "emergency ... right now" too)
+    "urgency": _P(r"right now|right away|immediately|as soon as possible|\basap\b|hurry|urgent|emergency",
+                  r"today only|within the hour|before (?:it'?s too late|tonight)"),
+    # "now" / "today": only counts as a hook for an unknown voice that is also asking for money
+    "timing": _P(r"\btoday\b|\bnow\b"),
 }
+
+# Lines that warn ABOUT scams (TV ads, a friend's advice) aren't scams themselves.
+_WARNING_RX = re.compile(r"will never (?:call|ask|demand|email|text)|never (?:give|share|send) (?:anyone|anybody)|"
+                         r"pretending to be|hang up and call|a message from the (?:ftc|fbi|aarp)|"
+                         r"(?:is|was|sounds like|that'?s) (?:a|another) scam", re.I)
+# ...unless that same line also asks the wearer for something (a scammer can say "someone is pretending to be you").
+_REQUEST_RX = re.compile(r"\b(?:i|we) (?:need|have to|must)\b|\b(?:read|give|tell|send) me\b|\bgo (?:buy|get)\b|"
+                         r"\byou (?:must|need to|have to)\b|\b(?:confirm|verify|provide)\b|\bcan you (?:send|read|give|buy)\b", re.I)
 
 
 def _scan(lines: list[dict]) -> tuple[dict[str, list[str]], dict[str, list[str]]]:
@@ -160,6 +205,8 @@ def _scan(lines: list[dict]) -> tuple[dict[str, list[str]], dict[str, list[str]]
         name = (ln.get("name") or "").strip()
         if name and name.lower() == wearer:
             continue  # the wearer talking about gift cards is not the threat
+        if _WARNING_RX.search(text) and not _REQUEST_RX.search(text):
+            continue
         bucket = known if name else unknown
         for sig, rx in SIGNALS.items():
             hits = [m.group(0) for m in rx.finditer(text)]
@@ -171,18 +218,18 @@ def _scan(lines: list[dict]) -> tuple[dict[str, list[str]], dict[str, list[str]]
 def _heuristic_risk(unknown: dict, known: dict) -> tuple[str | None, str]:
     def score(s: dict) -> str | None:
         ask = "money" in s or "sensitive" in s
-        hook = "impersonation" in s or "pressure" in s
+        hook = "impersonation" in s or "pressure" in s or "urgency" in s or "timing" in s
         if ask and hook:
             return "high"
         if "sensitive" in s:
-            return "high" if "impersonation" in s or "pressure" in s else "medium"
+            return "high" if hook else "medium"
         if ask or ("impersonation" in s and "pressure" in s):
             return "medium"
         return None
 
     def describe(s: dict) -> str:
         parts = []
-        for sig in ("money", "sensitive", "impersonation", "pressure"):
+        for sig in ("money", "sensitive", "impersonation", "pressure", "urgency", "timing"):
             if sig in s:
                 uniq = list(dict.fromkeys(h.lower() for h in s[sig]))[:3]
                 parts.append(f"{sig}: {', '.join(uniq)}")
@@ -193,9 +240,10 @@ def _heuristic_risk(unknown: dict, known: dict) -> tuple[str | None, str]:
     r_known = None
     if known:
         ask = "money" in known or "sensitive" in known
-        if ask and "pressure" in known and ("impersonation" in known or "sensitive" in known):
+        rush = "pressure" in known or "urgency" in known
+        if ask and rush and ("impersonation" in known or "sensitive" in known):
             r_known = "high"
-        elif ask and "pressure" in known:
+        elif ask and rush:
             r_known = "medium"
     order = {None: 0, "medium": 1, "high": 2}
     if order[r_unknown] >= order[r_known]:
@@ -212,13 +260,24 @@ _SCAM_SCHEMA = {
     },
 }
 _SCAM_SYSTEM = (
-    "You protect an older adult with early dementia from scams. You get a short transcript of what "
-    "people around them said. Lines labelled with a known name are family/friends the wearer knows; "
-    "'unknown' means an unidentified voice (often a phone caller). Rate scam risk: 'high' = someone is "
-    "pressuring the wearer to pay in gift cards / wire / crypto / cash, give card numbers, SSN, bank or "
-    "Medicare details, or pretends to be a relative in trouble, the IRS, Medicare, police or tech support; "
-    "'medium' = suspicious but unclear; 'none' = normal conversation (a family member mentioning a "
-    "pharmacy or groceries is normal). Be decisive."
+    "You protect an older adult with early memory loss from scams. You get a short transcript of what "
+    "people around them just said. Lines labelled with a name are family/friends the wearer knows; "
+    "'unknown' is an unidentified voice (a phone caller, a stranger, or the TV/radio).\n"
+    "Rate scam risk:\n"
+    "- 'high': someone is steering the wearer to pay with gift cards, prepaid cards, wire/Western Union, "
+    "crypto, cash pickup or a 'safe account'; or asking for card/bank/Social Security/Medicare numbers, "
+    "passwords or texted codes, or remote access to a computer; or pretends to be a relative in trouble, "
+    "the IRS, Social Security, Medicare, police, a utility, a bank fraud department, tech support, a "
+    "lottery/prize, or a romantic partner who needs money. Secrecy ('don't tell anyone') or threats "
+    "(arrest, shut-off) make it high.\n"
+    "- 'medium': something is steering the wearer toward money or personal details and you can't tell if "
+    "it is safe.\n"
+    "- 'none': ordinary life. Examples of 'none': family paying each other back or lending small amounts; "
+    "a grandchild borrowing the car; a pharmacy saying a refill is ready or a copay is due at pickup; a "
+    "doctor's office confirming an appointment or asking the wearer to BRING their insurance/Medicare card; "
+    "TV or radio news; a friend warning the wearer about scams; a gift card given as a present.\n"
+    "If your reason would say it sounds routine, the risk is 'none'. Be decisive. The reason is one short, "
+    "calm sentence for the family dashboard."
 )
 
 
@@ -246,16 +305,17 @@ def check_scam(lines: list[dict]) -> dict | None:
                 return None
             risk, reason = llm_risk, (verdict.get("reason") or reason)
 
+    who = family_contact()
     if risk == "high":
-        say = ("This sounds like a scam. Please don't buy anything or give any numbers. "
-               f"It's okay to hang up. I've told {FAMILY_CONTACT}.")
+        say = (f"I think this might be a scam, so let's not give any money or numbers. "
+               f"It's okay to just hang up, and I've let {who} know.")
         with _state_lock:
             first = not scam_lock_active()
             set_scam_lock(reason)
         if first:
             memory.add_alert("scam", f"Possible scam call ({reason}). Purchases locked for 30 minutes.")
     else:
-        say = "Be careful. If anyone asks for money or numbers, let's check with your family first."
+        say = f"Just a gentle reminder: if anyone asks for money or numbers, let's check with {who} first."
     return {"risk": risk, "reason": reason, "say": say}
 
 
@@ -285,18 +345,42 @@ def spent_today_cents() -> int:
     return int(rows[0]["s"])
 
 
-def _charge(item: str, merchant: str, amount_cents: int) -> str:
-    """Create + confirm a Stripe test-mode PaymentIntent, or simulate. Returns the id."""
-    if not config.STRIPE_SECRET_KEY:
+def _stripe_client():
+    """StripeClient for the installed stripe-python (v8+; v17 tested). Separate fn so tests can stub it."""
+    from stripe import StripeClient
+    return StripeClient(config.STRIPE_SECRET_KEY, max_network_retries=2)
+
+
+def _charge(item: str, merchant: str, amount_cents: int, idempotency_key: str = "") -> str:
+    """Create + confirm a Stripe test-mode PaymentIntent, or simulate when no key. Returns the id.
+
+    Uses the test card pm_card_visa, so it only makes sense with an sk_test_ key; a live key is refused.
+    The idempotency key makes Stripe's automatic network retries safe (never a double charge).
+    """
+    key = config.STRIPE_SECRET_KEY
+    if not key:
         return "sim_" + uuid.uuid4().hex[:20]
-    import stripe
-    pi = stripe.PaymentIntent.create(
-        api_key=config.STRIPE_SECRET_KEY,
-        amount=int(amount_cents), currency="usd",
-        payment_method="pm_card_visa", confirm=True,
-        automatic_payment_methods={"enabled": True, "allow_redirects": "never"},
-        description=f"Kin for {config.WEARER_NAME}: {item} from {merchant}",
-        metadata={"item": item[:200], "merchant": merchant, "agent": "kin"},
+    if not key.startswith(("sk_test_", "rk_test_")):
+        raise RuntimeError("Kin only charges in Stripe test mode (need an sk_test_ key)")
+    idem = idempotency_key or f"kin-{uuid.uuid4().hex}"
+    pi = _stripe_client().v1.payment_intents.create(
+        params={
+            "amount": int(amount_cents),
+            "currency": "usd",
+            "payment_method": "pm_card_visa",
+            "confirm": True,
+            "automatic_payment_methods": {"enabled": True, "allow_redirects": "never"},
+            "description": f"Kin for {config.WEARER_NAME}: {item} from {merchant} ({_money(amount_cents)})"[:1000],
+            "metadata": {
+                "agent": "kin", "wearer": config.WEARER_NAME[:500], "item": item[:500], "merchant": merchant,
+                "per_purchase_limit_cents": str(config.SPEND_LIMIT_CENTS),
+                "daily_cap_cents": str(config.SPEND_LIMIT_CENTS * DAILY_CAP_MULTIPLIER),
+                "spent_today_before_cents": str(spent_today_cents()),
+                "guardrails": "approved merchant; under per-purchase limit and daily cap; no scam lock",
+                "idempotency_key": idem,
+            },
+        },
+        options={"idempotency_key": idem},
     )
     if pi.status not in ("succeeded", "processing", "requires_capture"):
         raise RuntimeError(f"payment status {pi.status}")
@@ -317,44 +401,77 @@ def purchase(item: str, merchant: str, amount_cents: int) -> dict:
         amount_cents = int(amount_cents)
     except (TypeError, ValueError):
         amount_cents = 0
-    who = FAMILY_CONTACT
+    who = family_contact()
     limit = config.SPEND_LIMIT_CENTS
 
     with _state_lock:  # serialize so two threads can't both squeeze under the daily cap
         if scam_lock_active():
+            mins = max(1, round(scam_lock_remaining() / 60))
             return _block(item, merchant_in, amount_cents, "scam lock active (recent suspicious call)",
-                          f"I've paused all purchases for a little while to keep you safe. I'll check with {who}.")
+                          f"Let's wait about {mins} minutes before ordering anything, just to be safe after that call. "
+                          f"I've let {who} know, and your {item} can come right after.")
         cat = _blocked_category(item) or _blocked_category(merchant_in)
         if cat:
+            what = {"gift card": "gift cards", "crypto": "crypto",
+                    "wire / money transfer": "wire or money transfers"}.get(cat, cat)
             return _block(item, merchant_in, amount_cents, f"blocked category: {cat}",
-                          f"I can't buy {cat}s — that's a common scam. I've let {who} know."
-                          if cat == "gift card" else f"I can't do {cat} payments. I've let {who} know.")
+                          f"I don't buy {what}, because scammers often ask for those. "
+                          f"If someone asked you for one, let's check with {who} first.")
         canon = _norm_merchant(merchant_in)
         if not canon:
             return _block(item, merchant_in, amount_cents, f"merchant not approved: {merchant_in or '(none)'}",
-                          f"I can only order from your usual stores, like Walgreens or Safeway. I'll ask {who}.")
+                          f"I can only order from your usual stores, like Walgreens or Safeway. I'll ask {who} about this one.")
         if amount_cents <= 0:
             return _block(item, canon, amount_cents, "invalid amount",
-                          "I'm not sure what that costs, so I didn't buy it.")
+                          "I wasn't sure what that costs, so I didn't order it yet. Could you tell me the price?")
         if amount_cents > limit:
             return _block(item, canon, amount_cents, f"over per-purchase limit ({_money(amount_cents)} > {_money(limit)})",
-                          f"That's more than your family's limit of {_money(limit)}. I've asked {who} to approve it.")
+                          f"That's a bit more than your {_money(limit)} limit, so I've asked {who} to approve it.")
         spent = spent_today_cents()
         cap = limit * DAILY_CAP_MULTIPLIER
         if spent + amount_cents > cap:
             return _block(item, canon, amount_cents,
                           f"over daily cap ({_money(spent)} spent + {_money(amount_cents)} > {_money(cap)})",
-                          f"You've done enough shopping for today. I've asked {who} about this one.")
+                          f"You've done plenty of shopping today, so I've asked {who} about this one.")
+        idem = f"kin-{uuid.uuid4().hex}"
         try:
-            sid = _charge(item, canon, amount_cents)
+            sid = _charge(item, canon, amount_cents, idem)
         except Exception as e:
-            reason = f"payment failed: {e}"[:300]
+            reason = f"payment failed: {type(e).__name__}: {e}"[:300]
             return _block(item, canon, amount_cents, reason,
-                          "Sorry, the payment didn't go through. I'll let your family know.")
+                          f"Sorry, the payment didn't go through. I've let {who} know, so don't worry.")
         memory.add_purchase(item, canon, amount_cents, "allowed", "within guardrails", sid)
     return {"status": "allowed", "reason": "within guardrails",
             "say": f"Done. I ordered your {item} from {canon} for {_money(amount_cents)}.",
             "stripe_id": sid}
+
+
+def purchase_summary(limit: int = 5) -> dict:
+    """For the family dashboard: today's spend vs the cap, the scam lock, and the last purchases."""
+    spent = spent_today_cents()
+    cap = config.SPEND_LIMIT_CENTS * DAILY_CAP_MULTIPLIER
+    midnight = datetime.now().replace(hour=0, minute=0, second=0, microsecond=0).timestamp()
+    blocked_today = int(memory._rows("SELECT COUNT(*) AS n FROM purchases WHERE status='blocked' AND ts>=?",
+                                     (midnight,))[0]["n"])
+    last = [{"ts": p["ts"], "item": p["item"], "merchant": p["merchant"], "amount_cents": p["amount_cents"],
+             "amount": _money(p["amount_cents"] or 0), "status": p["status"], "reason": p["reason"],
+             "stripe_id": p["stripe_id"] or "", "live": (p["stripe_id"] or "").startswith("pi_")}
+            for p in memory.purchases(limit)]
+    return {
+        "spent_today_cents": spent, "spent_today": _money(spent),
+        "daily_cap_cents": cap, "daily_cap": _money(cap),
+        "remaining_today_cents": max(0, cap - spent), "remaining_today": _money(max(0, cap - spent)),
+        "per_purchase_limit_cents": config.SPEND_LIMIT_CENTS, "per_purchase_limit": _money(config.SPEND_LIMIT_CENTS),
+        "pct_of_cap": round(100 * spent / cap) if cap else 0,
+        "blocked_today": blocked_today,
+        "scam_lock_active": scam_lock_active(), "scam_lock_remaining_s": scam_lock_remaining(),
+        "scam_lock_reason": _scam_reason if scam_lock_active() else "",
+        "approved_merchants": list(APPROVED_MERCHANTS),
+        "stripe_mode": "test" if config.STRIPE_SECRET_KEY.startswith(("sk_test_", "rk_test_")) else
+                       ("simulated" if not config.STRIPE_SECRET_KEY else "refused (not a test key)"),
+        "family_contact": family_contact(),
+        "last": last,
+    }
 
 
 # ================================================================ 3. parsing a spoken request
@@ -372,6 +489,20 @@ _PARSE_SCHEMA = {
         "amount_cents": {"type": "integer", "description": "Stated price, or a realistic US estimate, in cents."},
     },
 }
+
+
+def _table_match(text: str) -> tuple[str, int, str] | None:
+    for rx, name, price, dm in PRICE_TABLE:
+        if re.search(rx, text or "", re.I):
+            return name, price, dm
+    return None
+
+
+def _tidy_item(item: str) -> str:
+    """'Blood pressure pills (prescription refill)' -> 'blood pressure pills' (it's spoken back as 'your ...')."""
+    item = re.sub(r"\s*\([^)]*\)", "", item or "").strip(" .")
+    item = re.sub(r"^(?:my|some|more|a|an|the)\s+", "", item, flags=re.I)
+    return (item[:1].lower() + item[1:]) if item and not item[:2].isupper() else item
 
 
 def _heuristic_parse(text: str) -> dict | None:
@@ -417,7 +548,8 @@ def parse_purchase_request(text: str) -> dict | None:
         return None
     if config.OPENAI_API_KEY:
         r = _llm_json(
-            "Decide if the user is asking their assistant to buy/order something. If so, extract the item, "
+            "Decide if the user is asking their assistant to buy/order something. If so, extract the item "
+            "(a short lowercase phrase as the user would say it, e.g. 'blood pressure pills', no brackets), "
             f"the store (approved stores: {', '.join(APPROVED_MERCHANTS)}; if none named pick the usual one; "
             "keep any other named store verbatim), and the price in US cents (stated, or a realistic estimate). "
             "If not a purchase request, set is_purchase false and the other fields to empty / 0.",
@@ -426,10 +558,21 @@ def parse_purchase_request(text: str) -> dict | None:
             if not r.get("is_purchase"):
                 return None
             try:
-                return {"item": str(r["item"]).strip() or "item", "merchant": str(r["merchant"]).strip(),
-                        "amount_cents": int(r["amount_cents"])}
+                out = {"item": _tidy_item(str(r["item"])) or "item", "merchant": str(r["merchant"]).strip(),
+                       "amount_cents": int(r["amount_cents"])}
             except (KeyError, TypeError, ValueError):
-                pass
+                out = None
+            if out:
+                # Known household items keep their usual name + price (stable demo, no LLM price drift),
+                # unless the wearer said a price out loud.
+                known = _table_match(text)
+                if known and not _PRICE_RX.search(text) and not _blocked_category(out["item"]):
+                    out["amount_cents"] = known[1]
+                    if known[0].lower() in text.lower():   # "...my blood pressure pills" -> exactly that
+                        out["item"] = known[0]
+                    out["merchant"] = out["merchant"] or known[2]
+                out["merchant"] = out["merchant"] or _PHARMACY_DEFAULT
+                return out
     return _heuristic_parse(text)
 
 

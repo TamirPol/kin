@@ -7,65 +7,88 @@
 <link rel="stylesheet" href="/static/style.css">
 </head>
 <body>
-<header class="top">
+<header class="strip" id="strip">
   <div class="brand">
     <span class="logo" aria-hidden="true">♥</span>
-    <div>
+    <div class="brand-text">
       <h1>Kin</h1>
       <p class="sub">Looking after <strong id="wearer">…</strong></p>
     </div>
   </div>
-  <div class="status">
-    <span id="mode" class="badge mode-listen">LISTENING</span>
-    <span id="band" class="badge band-disconnected"><span class="dot"></span><span id="band-text">Band offline</span></span>
-    <span id="live" class="badge live-off" title="Live connection to Kin">● Live</span>
+
+  <div class="mode-box">
+    <div id="mode" class="mode mode-listen" role="status" aria-live="polite">
+      <span class="bars" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
+      <span id="mode-text">LISTENING</span>
+    </div>
+    <p id="note" class="note" hidden></p>
   </div>
-  <p id="note" class="note" hidden></p>
+
+  <div class="status-right">
+    <span id="band" class="chip-status band-disconnected"><span class="dot"></span><span id="band-text">Band offline</span></span>
+    <span id="live" class="chip-status live-off" title="Live connection to Kin"><span class="dot"></span><span id="live-text">Offline</span></span>
+    <span id="clock" class="clock"></span>
+    <button id="theme" class="icon-btn" type="button" title="Switch light / dark">◐</button>
+  </div>
 </header>
 
-<main class="grid">
-  <section class="panel alerts-panel" id="alerts-panel" aria-labelledby="h-alerts">
-    <h2 id="h-alerts">Alerts</h2>
-    <ul id="alerts" class="list"></ul>
-    <p class="empty" id="alerts-empty">No alerts. All calm.</p>
-  </section>
+<div id="speaking" class="speaking" hidden aria-live="assertive">
+  <span class="speaking-icon" aria-hidden="true"><i></i><i></i><i></i></span>
+  <span class="speaking-label">Kin is saying</span>
+  <span id="speaking-text" class="speaking-text"></span>
+</div>
 
+<section id="pinned" class="pinned" hidden aria-live="assertive" aria-label="Alerts that need attention"></section>
+
+<main class="grid">
   <section class="panel transcript-panel" aria-labelledby="h-transcript">
-    <h2 id="h-transcript">What Kin is hearing</h2>
-    <p class="legend"><span class="lg lg-hi">important</span><span class="lg lg-norm">noted</span><span class="lg lg-low">small talk</span><span class="lg lg-pend">thinking…</span></p>
-    <ol id="transcript" class="transcript"></ol>
+    <div class="panel-head">
+      <h2 id="h-transcript">What Kin heard</h2>
+      <p class="legend"><span class="lg lg-hi">remembered</span><span class="lg lg-low">small talk</span></p>
+    </div>
+    <ol id="transcript" class="transcript scroll"></ol>
     <p class="empty" id="transcript-empty">Nothing heard yet.</p>
   </section>
 
-  <section class="panel" aria-labelledby="h-people">
-    <h2 id="h-people">People</h2>
-    <form id="person-form" class="person-form" autocomplete="off">
-      <input id="p-name" name="name" placeholder="Name (e.g. Sarah)" required maxlength="80">
-      <input id="p-rel" name="relationship" placeholder="Relationship (e.g. daughter)" maxlength="80">
-      <button type="submit">Add person</button>
-    </form>
-    <div id="people" class="cards"></div>
-    <p class="empty" id="people-empty">No one yet. Add family so Kin knows them.</p>
+  <section class="panel people-panel" aria-labelledby="h-people">
+    <div class="panel-head">
+      <h2 id="h-people">Who was here</h2>
+      <details class="add-person">
+        <summary>+ Add</summary>
+        <form id="person-form" class="person-form" autocomplete="off">
+          <input id="p-name" name="name" placeholder="Name (e.g. Sarah)" required maxlength="80">
+          <input id="p-rel" name="relationship" placeholder="Relationship (e.g. daughter)" maxlength="80">
+          <button type="submit">Add person</button>
+        </form>
+      </details>
+    </div>
+    <div id="people" class="cards scroll"></div>
+    <p class="empty" id="people-empty">No one yet. When someone introduces themselves, Kin adds them here.</p>
   </section>
 
-  <section class="panel" aria-labelledby="h-todos">
-    <h2 id="h-todos">To-dos</h2>
-    <ul id="todos" class="list"></ul>
-    <p class="empty" id="todos-empty">Nothing to do right now.</p>
-  </section>
+  <div class="side">
+    <section class="panel" aria-labelledby="h-todos">
+      <div class="panel-head"><h2 id="h-todos">To do</h2></div>
+      <ul id="todos" class="list scroll"></ul>
+      <p class="empty" id="todos-empty">Nothing to do right now.</p>
+    </section>
 
-  <section class="panel" aria-labelledby="h-items">
-    <h2 id="h-items">Where things are</h2>
-    <ul id="items" class="list items"></ul>
-    <p class="empty" id="items-empty">No items logged yet.</p>
-  </section>
+    <section class="panel" aria-labelledby="h-items">
+      <div class="panel-head"><h2 id="h-items">Where things are</h2></div>
+      <ul id="items" class="list items scroll"></ul>
+      <p class="empty" id="items-empty">No items logged yet.</p>
+    </section>
 
-  <section class="panel" aria-labelledby="h-purchases">
-    <h2 id="h-purchases">Purchases</h2>
-    <p class="sub" id="limit"></p>
-    <ul id="purchases" class="list"></ul>
-    <p class="empty" id="purchases-empty">No purchases.</p>
-  </section>
+    <section class="panel" id="history-panel" aria-labelledby="h-history" hidden>
+      <div class="panel-head"><h2 id="h-history">Earlier alerts</h2></div>
+      <ul id="history" class="list compact scroll"></ul>
+    </section>
+
+    <section class="panel" id="purchases-panel" aria-labelledby="h-purchases" hidden>
+      <div class="panel-head"><h2 id="h-purchases">Purchases</h2><span class="sub small" id="limit"></span></div>
+      <ul id="purchases" class="list compact scroll"></ul>
+    </section>
+  </div>
 </main>
 
 <script src="/static/app.js"></script>

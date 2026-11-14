@@ -4,9 +4,10 @@ import time
 from pathlib import Path
 
 DB = "/tmp/kin_vision_test.db"
-os.environ["KIN_DB"] = DB
-if os.path.exists(DB):
-    os.remove(DB)
+if not os.environ.get("KIN_DB", "").startswith("/tmp/"):   # another test module may already have set a test DB
+    os.environ["KIN_DB"] = DB
+    if os.path.exists(DB):
+        os.remove(DB)
 
 import cv2  # noqa: E402
 import numpy as np  # noqa: E402
@@ -14,7 +15,7 @@ import pytest  # noqa: E402
 
 from kin import config, memory, vision  # noqa: E402
 
-assert str(config.DB_PATH) == DB
+assert str(config.DB_PATH).startswith("/tmp/")   # never the real kin.db
 
 
 def jpeg(color=(200, 200, 200), square=None, noise=0, size=60, shape=(240, 320)) -> bytes:
@@ -54,6 +55,7 @@ def fresh_db():
 
 
 def make(frames, describe, tmp_path, **kw):
+    kw.setdefault("settle", 0)          # the older tests check change detection alone; settling is tested below
     return vision.VisionWatcher(ListSource(frames), describe=describe, snapshot_dir=tmp_path / "snapshots", **kw)
 
 
@@ -193,6 +195,148 @@ def test_no_key_returns_empty(monkeypatch, caplog):
     assert sum("GEMINI_API_KEY" in r.message for r in caplog.records) == 1
 
 
+# ---------- settling: wait until the scene is still ----------
+def test_person_walking_through_costs_no_gemini_calls(tmp_path):
+    empty = jpeg()
+    walking = [jpeg(square=(10 + 50 * i, 40), size=120) for i in range(5)]     # big thing moving each tick
+    fake = FakeDescribe()
+    w = make([empty, empty] + walking + [empty, empty], fake, tmp_path, settle=1)
+    for _ in range(9):
+        w.step()
+    # first still frame described once; while walking: nothing; back to the same empty scene: skipped
+    assert fake.calls == 1
+    assert w.stats["moving"] >= 5
+
+
+def test_item_put_down_is_described_once_it_is_still(tmp_path):
+    empty, hand = jpeg(), jpeg(square=(100, 60), size=120)
+    keys = jpeg(square=(150, 150), size=25)
+    fake = FakeDescribe([], [KEYS_TABLE])
+    w = make([empty, empty, hand, keys, keys, keys], fake, tmp_path, settle=1)
+    logged = [w.step() for _ in range(6)]
+    assert fake.calls == 2
+    assert [len(x) for x in logged] == [0, 0, 0, 0, 1, 0]     # logged on the first still frame with keys
+    assert len(memory.items()) == 1
+
+
+# ---------- Gemini back-off ----------
+class Busy(Exception):
+    code = 429
+
+
+def test_gemini_429_backs_off_and_retries_frame(tmp_path, monkeypatch):
+    calls = []
+
+    def fake_generate(parts, schema=None, temperature=0.1):
+        calls.append(1)
+        if len(calls) == 1:
+            raise vision._note_busy(Busy("429 RESOURCE_EXHAUSTED"))
+        return '[{"item": "car keys", "location": "on the desk next to the laptop", "confidence": 0.9}]'
+
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test")
+    monkeypatch.setattr(vision, "_generate", fake_generate)
+    monkeypatch.setattr(vision, "_busy_delay", 0.0)
+    frame = jpeg(square=(40, 40))
+    w = vision.VisionWatcher(ListSource([frame] * 4), settle=0, snapshot_dir=tmp_path / "s")
+    assert w.step() == [] and w.stats["busy"] == 1
+    assert 0 < vision.busy_for() <= vision.BACKOFF_START
+    assert w.step() == [] and len(calls) == 1          # still backing off: no call made
+    monkeypatch.setattr(vision, "_busy_until", 0.0)
+    logged = w.step()                                  # same frame retried (it was never marked as seen)
+    assert [d["item"] for d in logged] == ["keys"]
+    assert w.step() == []                              # and now it is seen
+
+
+def test_busy_error_detection():
+    assert vision._is_busy_error(Busy("x"))
+    assert vision._is_busy_error(Exception("503 UNAVAILABLE. model overloaded"))
+    assert not vision._is_busy_error(ValueError("bad json"))
+
+
+def test_backoff_grows_and_caps(monkeypatch):
+    monkeypatch.setattr(vision, "_busy_delay", 0.0)
+    delays = [vision._note_busy(Busy()).retry_in for _ in range(7)]
+    assert delays[0] == vision.BACKOFF_START and delays[1] == 2 * vision.BACKOFF_START
+    assert delays[-1] == vision.BACKOFF_MAX
+    monkeypatch.setattr(vision, "_busy_until", 0.0)
+
+
+# ---------- names ----------
+@pytest.mark.parametrize("raw,canon", [
+    ("car keys", "keys"), ("Keys", "keys"), ("key", "keys"), ("my keyring", "keys"), ("set of keys", "keys"),
+    ("eyeglasses", "glasses"), ("reading glasses", "glasses"), ("Glasses.", "glasses"),
+    ("sunglasses", "sunglasses"), ("black leather wallet", "wallet"), ("iPhone", "phone"),
+    ("cell phone", "phone"), ("pill bottle", "pills"), ("bottle of pills", "pills"), ("medication", "pills"),
+    ("TV remote", "tv remote"), ("remote control", "tv remote"), ("hearing aid", "hearing aids"),
+    ("walking stick", "cane"), ("keys on a ring", "keys"), ("books", "book"), ("glasses case", "glasses case"),
+    ("", ""),
+])
+def test_normalize_item(raw, canon):
+    assert vision.normalize_item(raw) == canon
+
+
+def test_where_is_finds_vision_item_by_any_name(tmp_path):
+    w = make([jpeg()], FakeDescribe([{"item": "car keys", "location": "on the desk", "confidence": 0.9},
+                                     {"item": "reading glasses", "location": "on the sofa", "confidence": 0.9}]),
+             tmp_path)
+    w.step()
+    assert {i["item"] for i in memory.items()} == {"keys", "glasses"}
+    assert memory.find_item("keys")["snapshot"]                  # "where are my keys?" works as-is
+    assert vision.where_is("my car keys")["location"] == "on the desk"
+    assert vision.where_is("eyeglasses")["location"] == "on the sofa"
+    assert vision.where_is("umbrella") is None
+
+
+def test_same_place_same_surface():
+    assert vision.same_place("on the desk next to the laptop", "on the wooden desk in front of the keyboard")
+    assert not vision.same_place("on the desk next to the laptop", "on the kitchen counter by the sink")
+
+
+# ---------- "what do you see?" ----------
+def test_describe_scene_one_sentence(monkeypatch):
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test")
+    monkeypatch.setattr(vision, "_generate",
+                        lambda parts, schema=None, temperature=0.1: '"You are at your desk with your keys. Also a mug."')
+    assert vision.describe_scene(jpeg()) == "You are at your desk with your keys."
+
+
+def test_describe_scene_no_key(monkeypatch):
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "")
+    assert vision.describe_scene(jpeg()) == ""
+
+
+def test_what_do_you_see(tmp_path, monkeypatch):
+    monkeypatch.setattr(vision, "describe_scene", lambda j: "Your keys are on the kitchen table.")
+    w = make([jpeg()], FakeDescribe([KEYS_TABLE]), tmp_path)
+    r = w.what_do_you_see()
+    assert r["sentence"] == "Your keys are on the kitchen table."
+    assert r["items"][0]["item"] == "keys" and r["snapshot"][:2] == b"\xff\xd8"
+    assert w.what_do_you_see()["snapshot"]          # source empty now: falls back to the last frame
+
+
+# ---------- faces (optional) ----------
+def test_enroll_and_recognise_faces(tmp_path, monkeypatch):
+    faces = tmp_path / "faces"
+    vision.enroll_face("Sarah Cohen", jpeg((10, 10, 10)), faces)
+    vision.enroll_face("Sarah Cohen", jpeg((20, 20, 20)), faces)
+    vision.enroll_face("David", jpeg((30, 30, 30)), faces)
+    got = vision.enrolled_faces(faces)
+    assert set(got) == {"Sarah Cohen", "David"} and len(got["Sarah Cohen"]) == 2
+    seen = {}
+
+    def fake_generate(parts, schema=None, temperature=0.1):
+        seen["parts"] = parts
+        return '["sarah cohen", "Stranger"]'
+
+    monkeypatch.setattr(config, "GEMINI_API_KEY", "test")
+    monkeypatch.setattr(vision, "_generate", fake_generate)
+    assert vision.who_is_in_frame(jpeg(), faces) == ["Sarah Cohen"]     # only enrolled names come back
+    assert sum(isinstance(p, str) and p.startswith("Enrolled person") for p in seen["parts"]) == 2
+    assert vision.who_is_in_frame(jpeg(), tmp_path / "nobody") == []
+    with pytest.raises(ValueError):
+        vision.enroll_face(" ", jpeg(), faces)
+
+
 # ---------- FolderSource ----------
 def test_folder_source_replays_in_order(tmp_path):
     for i, c in enumerate([(10, 10, 10), (120, 120, 120), (250, 250, 250)]):
@@ -229,4 +373,7 @@ def test_real_gemini():
     print(out)
     assert isinstance(out, list)
     assert all(set(d) == {"item", "location", "confidence"} for d in out)
-    assert any("key" in d["item"] for d in out)
+    assert any(d["item"] == "keys" for d in out)
+    sentence = vision.describe_scene(data)
+    print(sentence)
+    assert sentence and len(sentence.split()) <= 40

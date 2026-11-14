@@ -75,6 +75,15 @@ def _delete_fact(fid: int) -> dict | None:
     return dict(row)
 
 
+def _mark_alert_seen(aid: int) -> dict | None:
+    """Family acknowledged an alert on the dashboard (uses the existing alerts.seen column)."""
+    with memory._lock:
+        memory.db().execute("UPDATE alerts SET seen=1 WHERE id=?", (aid,))
+        memory.db().commit()
+        row = memory.db().execute("SELECT * FROM alerts WHERE id=?", (aid,)).fetchone()
+    return dict(row) if row else None
+
+
 class PersonIn(BaseModel):
     name: str
     relationship: str = ""
@@ -109,6 +118,14 @@ def create_app() -> FastAPI:
     def todo_done(tid: int):
         memory.finish_todo(tid)
         return {"ok": True, "id": tid}
+
+    @app.post("/api/alert/{aid}/seen")
+    def alert_seen(aid: int):
+        row = _mark_alert_seen(aid)
+        if not row:
+            raise HTTPException(404, "no such alert")
+        _broadcast({"table": "alerts", "row": row})
+        return {"ok": True, "id": aid}
 
     @app.delete("/api/fact/{fid}")
     def delete_fact(fid: int):

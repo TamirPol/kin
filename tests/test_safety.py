@@ -22,8 +22,10 @@ def clean(monkeypatch):
     monkeypatch.setattr(config, "OPENAI_API_KEY", "")
     monkeypatch.setattr(config, "STRIPE_SECRET_KEY", "")
     monkeypatch.setattr(config, "SPEND_LIMIT_CENTS", 5000)
+    monkeypatch.setattr(safety, "FAMILY_CONTACT", "")
     memory._exec("DELETE FROM purchases")
     memory._exec("DELETE FROM alerts")
+    memory._exec("DELETE FROM people")
     safety.reset()
     yield
     safety.reset()
@@ -234,13 +236,204 @@ def test_tool_schemas_and_dispatch():
     assert "error" in safety.handle_tool_call("nope", "{}")
 
 
-# ---------------- live Stripe test mode (only with a real sk_test_ key in .env)
+# ---------------- spoken lines: warm, short, never frightening, name a child if known
+import re  # noqa: E402
+
+SCARY = re.compile(r"\b(?:danger|dangerous|criminal|fraud|police|arrest|stolen|steal|emergency|warning|alert|"
+                   r"urgent|immediately|threat|attack|hacked)\b", re.I)
+
+
+def sentences(t):
+    return [x for x in re.split(r"(?<=[.!?])\s+", t.strip()) if x]
+
+
+def gentle(say):
+    assert say and len(sentences(say)) <= 2, say
+    assert not SCARY.search(say), say
+    return True
+
+
+def test_family_contact_prefers_daughter_or_son_over_grandchild():
+    assert safety.family_contact() == "your family"
+    memory.upsert_person("Bob", "friend")
+    memory.upsert_person("Tommy", "grandson")            # "grandson" must NOT count as son
+    assert safety.family_contact() == "your family"
+    memory.upsert_person("Sarah", "daughter")
+    assert safety.family_contact() == "Sarah"
+    memory.upsert_person("Tommy", "grandson")            # seen more recently, still not chosen
+    assert safety.family_contact() == "Sarah"
+
+
+def test_family_contact_env_override(monkeypatch):
+    memory.upsert_person("Sarah", "daughter")
+    monkeypatch.setattr(safety, "FAMILY_CONTACT", "Mike")
+    assert safety.family_contact() == "Mike"
+
+
+def test_say_lines_are_gentle_and_name_family():
+    memory.upsert_person("Sarah", "daughter")
+    hi = safety.check_scam(SCAM_CALL)
+    assert hi["risk"] == "high" and gentle(hi["say"]) and "Sarah" in hi["say"] and "hang up" in hi["say"]
+    safety.reset()
+    med = safety.check_scam([L("Have you heard about crypto?")])
+    assert med["risk"] == "medium" and gentle(med["say"]) and "Sarah" in med["say"]
+    blocked = [
+        safety.purchase("Apple gift card", "CVS", 2500),
+        safety.purchase("bitcoin", "CVS", 2500),
+        safety.purchase("vitamins", "TotallyLegitPharma.ru", 999),
+        safety.purchase("scooter", "Amazon Pharmacy", 50001),
+        safety.purchase("milk", "Safeway", 0),
+    ]
+    for r in blocked:
+        assert r["status"] == "blocked" and gentle(r["say"]), r
+    assert all("Sarah" in r["say"] for r in blocked[:4])
+    assert gentle(safety.purchase("milk", "Safeway", 449)["say"])
+
+
+# ---------------- the demo line, end to end
+DEMO = "Kin, reorder my blood pressure pills from Walgreens"
+
+
+def test_demo_reorder_end_to_end():
+    memory.upsert_person("Sarah", "daughter")
+    req = safety.parse_purchase_request(DEMO)
+    assert req == {"item": "blood pressure pills", "merchant": "Walgreens", "amount_cents": 1299}
+    r = safety.purchase(**req)
+    assert r["status"] == "allowed" and r["say"] == "Done. I ordered your blood pressure pills from Walgreens for $12.99."
+    assert gentle(r["say"])
+
+
+def test_demo_reorder_with_llm_keeps_name_and_price(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_API_KEY", "sk-fake")
+    monkeypatch.setattr(safety, "_llm_json", lambda *a, **k: {
+        "is_purchase": True, "item": "Blood pressure pills (prescription refill)", "merchant": "Walgreens",
+        "amount_cents": 2000})
+    assert safety.parse_purchase_request(DEMO) == {
+        "item": "blood pressure pills", "merchant": "Walgreens", "amount_cents": 1299}
+
+
+def test_demo_reorder_refused_gently_during_scam_lock():
+    memory.upsert_person("Sarah", "daughter")
+    assert safety.check_scam(SCAM_CALL)["risk"] == "high"
+    r = safety.purchase(**safety.parse_purchase_request(DEMO))
+    assert r["status"] == "blocked" and "scam lock" in r["reason"]
+    assert gentle(r["say"]) and "Sarah" in r["say"] and "blood pressure pills" in r["say"]
+    assert "30 minutes" in r["say"] or "minutes" in r["say"]
+    # tool path (voice agent) refuses the same way
+    t = safety.handle_tool_call("purchase", {"item": "blood pressure pills", "merchant": "Walgreens",
+                                             "amount_cents": 1299})
+    assert t["status"] == "blocked" and t["say"] == r["say"]
+    safety.clear_scam_lock()
+    assert safety.purchase(**safety.parse_purchase_request(DEMO))["status"] == "allowed"
+
+
+# ---------------- Stripe call shape (stubbed client, no network)
+class _FakePI:
+    def __init__(self, status="succeeded"):
+        self.id, self.status = "pi_fake123", status
+
+
+class _FakeClient:
+    def __init__(self, status="succeeded"):
+        self.calls = []
+        outer = self
+
+        class _PIs:
+            def create(self, params, options=None):
+                outer.calls.append((params, options))
+                return _FakePI(status)
+
+        class _V1:
+            payment_intents = _PIs()
+
+        self.v1 = _V1()
+
+
+def test_charge_uses_stripe_client_v1_with_idempotency_and_metadata(monkeypatch):
+    fake = _FakeClient()
+    monkeypatch.setattr(config, "STRIPE_SECRET_KEY", "sk_test_fake")
+    monkeypatch.setattr(safety, "_stripe_client", lambda: fake)
+    r = safety.purchase("blood pressure pills", "Walgreens", 1299)
+    assert r["status"] == "allowed" and r["stripe_id"] == "pi_fake123"
+    (params, options), = fake.calls
+    assert params["amount"] == 1299 and params["currency"] == "usd" and params["confirm"] is True
+    assert params["payment_method"] == "pm_card_visa"
+    assert params["automatic_payment_methods"] == {"enabled": True, "allow_redirects": "never"}
+    assert params["description"] == f"Kin for {config.WEARER_NAME}: blood pressure pills from Walgreens ($12.99)"
+    md = params["metadata"]
+    assert md["agent"] == "kin" and md["merchant"] == "Walgreens" and md["item"] == "blood pressure pills"
+    assert all(isinstance(v, str) and len(v) <= 500 for v in md.values()) and len(md) <= 50
+    assert options["idempotency_key"].startswith("kin-") and md["idempotency_key"] == options["idempotency_key"]
+    safety.purchase("vitamins", "CVS", 999)
+    assert fake.calls[1][1]["idempotency_key"] != options["idempotency_key"]   # one key per purchase
+    assert memory.purchases()[1]["stripe_id"] == "pi_fake123"
+
+
+def test_live_mode_key_is_refused(monkeypatch):
+    monkeypatch.setattr(config, "STRIPE_SECRET_KEY", "sk_live_nope")
+    monkeypatch.setattr(safety, "_stripe_client", lambda: pytest.fail("must not call Stripe with a live key"))
+    r = safety.purchase("milk", "Safeway", 449)
+    assert r["status"] == "blocked" and "test mode" in r["reason"]
+
+
+def test_unsuccessful_payment_status_blocks(monkeypatch):
+    monkeypatch.setattr(config, "STRIPE_SECRET_KEY", "sk_test_fake")
+    monkeypatch.setattr(safety, "_stripe_client", lambda: _FakeClient("requires_payment_method"))
+    r = safety.purchase("milk", "Safeway", 449)
+    assert r["status"] == "blocked" and "requires_payment_method" in r["reason"] and gentle(r["say"])
+
+
+# ---------------- dashboard summary
+def test_purchase_summary():
+    s0 = safety.purchase_summary()
+    assert s0["spent_today_cents"] == 0 and s0["daily_cap_cents"] == 15000 and s0["last"] == []
+    assert s0["stripe_mode"] == "simulated" and not s0["scam_lock_active"]
+    safety.purchase("blood pressure pills", "Walgreens", 1299)
+    safety.purchase("Apple gift card", "CVS", 2500)
+    s = safety.purchase_summary()
+    assert s["spent_today_cents"] == 1299 and s["spent_today"] == "$12.99"
+    assert s["remaining_today_cents"] == 15000 - 1299 and s["pct_of_cap"] == 9
+    assert s["blocked_today"] == 1 and s["per_purchase_limit"] == "$50.00"
+    assert [x["status"] for x in s["last"]] == ["blocked", "allowed"]
+    assert s["last"][1]["amount"] == "$12.99" and s["last"][1]["live"] is False
+    safety.check_scam(SCAM_CALL)
+    s = safety.purchase_summary()
+    assert s["scam_lock_active"] and s["scam_lock_remaining_s"] > 29 * 60 and s["scam_lock_reason"]
+    import json
+    json.dumps(s)   # dashboard-serialisable
+
+
+# ---------------- live OpenAI (only with a real OPENAI_API_KEY in .env)
+needs_openai = pytest.mark.skipif(not REAL_OPENAI, reason="no OPENAI_API_KEY in .env")
+
+
+@needs_openai
+def test_live_llm_scam_and_parse(monkeypatch):
+    monkeypatch.setattr(config, "OPENAI_API_KEY", REAL_OPENAI)
+    assert safety.check_scam(SCAM_CALL)["risk"] == "high"
+    safety.reset()
+    assert safety.check_scam([L("Your refill is ready, the copay is five dollars when you pick it up.")]) is None
+    assert safety.parse_purchase_request(DEMO) == {
+        "item": "blood pressure pills", "merchant": "Walgreens", "amount_cents": 1299}
+    assert safety.parse_purchase_request("Where did I leave my glasses?") is None
+
+
+# ---------------- live Stripe test mode (runs automatically once an sk_test_ key is in .env)
 @pytest.mark.skipif(not REAL_STRIPE.startswith("sk_test_"), reason="no STRIPE_SECRET_KEY sk_test_ in .env")
 def test_live_stripe_test_payment(monkeypatch):
     monkeypatch.setattr(config, "STRIPE_SECRET_KEY", REAL_STRIPE)
-    r = safety.purchase("blood pressure pills", "Walgreens", 1299)
+    r = safety.purchase(**safety.parse_purchase_request(DEMO))
     assert r["status"] == "allowed", r
     assert r["stripe_id"].startswith("pi_")
-    import stripe
-    pi = stripe.PaymentIntent.retrieve(r["stripe_id"], api_key=REAL_STRIPE)
-    assert pi.status == "succeeded" and pi.metadata["merchant"] == "Walgreens"
+    pi = safety._stripe_client().v1.payment_intents.retrieve(r["stripe_id"])
+    assert pi.status == "succeeded" and pi.amount == 1299 and pi.currency == "usd" and not pi.livemode
+    assert pi.metadata["merchant"] == "Walgreens" and pi.metadata["agent"] == "kin"
+    assert "blood pressure pills from Walgreens" in pi.description
+    assert safety.purchase_summary()["last"][0]["live"] is True
+    # same idempotency key -> Stripe returns the same PaymentIntent, never a second charge
+    key = f"kin-test-{r['stripe_id']}"
+    a = safety._charge("milk", "Safeway", 449, key)
+    b = safety._charge("milk", "Safeway", 449, key)
+    assert a == b and a.startswith("pi_")
+    # guardrails hold with real Stripe too
+    assert safety.purchase("Apple gift card", "CVS", 2500)["status"] == "blocked"
