@@ -12,6 +12,7 @@ no OpenAI key -> rule answers from memory, no ElevenLabs key -> the Mac's `say` 
 from __future__ import annotations
 
 import asyncio
+import os
 import logging
 import shutil
 import subprocess
@@ -20,7 +21,7 @@ import time
 from pipecat.frames.frames import (
     EndFrame, ErrorFrame, Frame, InputAudioRawFrame, InterimTranscriptionFrame, LLMFullResponseEndFrame,
     LLMMessagesAppendFrame, LLMTextFrame, StartFrame, TranscriptionFrame, TTSAudioRawFrame,
-    TTSSpeakFrame, TTSStoppedFrame,
+    TTSSpeakFrame, TTSStoppedFrame, TTSTextFrame,
 )
 from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 
@@ -254,7 +255,13 @@ def make_tts():
         from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
         return ElevenLabsTTSService(api_key=config.ELEVENLABS_API_KEY,
                                     settings=ElevenLabsTTSService.Settings(voice=config.ELEVENLABS_VOICE_ID))
-    log.warning("No ElevenLabs key: using the Mac's built-in voice.")
+    if config.OPENAI_API_KEY and os.environ.get("KIN_TTS", "").lower() != "say":
+        from pipecat.services.openai.tts import OpenAITTSService
+        log.info("Voice: OpenAI text-to-speech (no ElevenLabs key).")
+        return OpenAITTSService(api_key=config.OPENAI_API_KEY, settings=OpenAITTSService.Settings(
+            voice=os.environ.get("KIN_OPENAI_VOICE", "sage"),
+            instructions="Speak warmly, slowly and calmly, like a kind friend talking to an older person."))
+    log.warning("No ElevenLabs or OpenAI key: using the Mac's built-in voice.")
     return SayTTS()
 
 
@@ -299,19 +306,20 @@ class Speaker(FrameProcessor):
         self.app = app
         self._stream = None
         self._said: list[str] = []
+        self.audio_bytes = 0                              # for tests: how much sound was played
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
         if isinstance(frame, TTSAudioRawFrame):
+            self.audio_bytes += len(frame.audio)
             await asyncio.to_thread(self._play, frame)
-        elif isinstance(frame, LLMTextFrame):
-            self._said.append(frame.text)
-        elif isinstance(frame, TTSSpeakFrame):
+        elif isinstance(frame, TTSTextFrame):             # what the TTS actually spoke
             self._said.append(frame.text)
         if isinstance(frame, (TTSStoppedFrame,)):
-            text = "".join(self._said).strip()
+            text = " ".join(t.strip() for t in self._said if t.strip()).replace(" ,", ",").replace(" .", ".")
             self._said = []
             if text and not isinstance(self.app.tts, SayTTS):
+                log.info("KIN SAYS: %s", text)
                 memory.add_line("kin", text, name="Kin")
             self.app.done_speaking()
         await self.push_frame(frame, direction)

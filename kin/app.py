@@ -8,7 +8,7 @@ memory, safety, the dashboard and vision together.
 Band gestures:  double-tap = ask Kin (or "I'm fine" during a fall check)
                 free-fall  = fall check ("Are you okay?")
 Terminal keys (handy without a band or a Deepgram key):
-    t              pretend double-tap
+    t              pretend double-tap      r  remind me now      away / home  band leaves / returns
     f              pretend fall
     a <question>   ask Kin directly
     1 <text>       say <text> as "speaker 1" (w <text> = as the wearer)
@@ -36,6 +36,11 @@ CHUNK_PAUSE = 6.0          # seconds of quiet that end a conversation chunk
 CHUNK_MAX = 30.0           # digest at least this often while people keep talking
 WEARER_DB = -32.0          # utterances louder than this (dBFS at the wrist) count as the wearer
 FALL_WAIT = 15.0           # seconds to double-tap "I'm fine" after a fall
+REMIND_AFTER = float(__import__("os").environ.get("KIN_REMIND_AFTER", "600"))  # remind of a to-do this long after it was made
+REMIND_QUIET = 20.0        # only remind when nobody has spoken for this long
+WANDER_RSSI = -88          # dBm: weaker than this means the band is far from the laptop/base
+WANDER_SECONDS = 10.0      # ... for this long (or the link is lost this long) -> wander alert
+DUE_NOW = ("today", "tonight", "this morning", "this afternoon", "this evening", "now", "soon")
 
 
 class Kin:
@@ -56,6 +61,10 @@ class Kin:
         self._decoder = None
         self.dashboard = None
         self.vision = None
+        self._reminded: set[int] = set()
+        self._far_since = 0.0
+        self._lost_since = 0.0
+        self._wander_alerted = False
 
     # ------------------------------------------------------------------ pipeline
     async def build(self):
@@ -114,15 +123,84 @@ class Kin:
         self.band.on("audio", self._on_audio)
         self.band.on("double-tap", self._on_double_tap)
         self.band.on("free-fall", self._on_fall)
-        self.band.on("disconnect", lambda e: self._set_band("disconnected"))
+        self.band.on("disconnect", self._on_disconnect)
         self.band.on("reconnected", lambda e: self._set_band("connected"))
+        self.band.on("link", self._on_link)
         await self.band.set_events(kinds=["tap", "double-tap", "free-fall"])
         await self.band.configure(audio=True, events=True)     # light goes solid blue: mic is on
+        if self.band.transport_kind in ("ble", "sim"):
+            try:
+                await self.band.configure(link=True)           # signal strength once a second (wander alert)
+            except Exception as e:
+                log.info("No signal strength on this link: %s", e)
         self.publish_status()
 
     def _set_band(self, s):
         self.band_state = s
+        if s == "connected":
+            self._lost_since = 0.0
         self.publish_status()
+
+    def _on_disconnect(self, e=None):
+        self._set_band("disconnected")
+        if getattr(e, "reason", "") == "lost" and not self._lost_since:
+            self._lost_since = time.time()
+
+    # ------------------------------------------------------------------ wander alert
+    def _on_link(self, e):
+        rssi = getattr(e, "rssi", None)
+        if rssi is None:
+            return
+        now = time.time()
+        if rssi < WANDER_RSSI:
+            self._far_since = self._far_since or now
+        else:
+            self._far_since = 0.0
+            self._wander_alerted = False
+
+    async def wander_loop(self):
+        while True:
+            await asyncio.sleep(1)
+            now = time.time()
+            far = self._far_since and now - self._far_since > WANDER_SECONDS
+            gone = self._lost_since and now - self._lost_since > WANDER_SECONDS * 3
+            if (far or gone) and not self._wander_alerted:
+                self._wander_alerted = True
+                why = "has lost touch with the band" if gone else "the band is far from home base"
+                memory.add_alert("wander", f"{config.WEARER_NAME} may have wandered off: {why}.")
+                self.publish_status(note="Wander alert sent to family")
+                log.warning("WANDER: %s", why)
+
+    # ------------------------------------------------------------------ proactive reminders
+    def _due_todo(self, force: bool = False) -> dict | None:
+        now = time.time()
+        for t in memory.todos():
+            if t["id"] in self._reminded:
+                continue
+            due = (t["due"] or "").lower()
+            if force or any(w in due for w in DUE_NOW) or now - t["ts"] > REMIND_AFTER:
+                return t
+        return None
+
+    async def remind(self, force: bool = False) -> bool:
+        t = self._due_todo(force)
+        if not t:
+            return False
+        self._reminded.add(t["id"])
+        text = t["text"].rstrip(".")
+        text = text[0].lower() + text[1:] if text[:1].isupper() and not text[:2].isupper() else text
+        due = f" {t['due']}" if t["due"] and t["due"].lower() not in text.lower() else ""
+        log.info("REMIND: %s", t["text"])
+        self.publish_status(note=f"Reminder: {t['text']}")
+        await self.router.speak(f"Just a gentle reminder: you planned to {text}{due}.")
+        return True
+
+    async def reminder_loop(self):
+        while True:
+            await asyncio.sleep(15)
+            quiet = time.time() - max(self._last_heard, 0) > REMIND_QUIET
+            if self.mode == "listen" and not self.speaking and quiet and not (self._fall_task and not self._fall_task.done()):
+                await self.remind()
 
     async def _on_audio(self, a):
         if not self._decoder:
@@ -296,11 +374,23 @@ class Kin:
                 await self.stt.say(spk, rest)
             else:
                 await self.router._on_sentence(spk, rest)
+        elif cmd == "r":
+            if not await self.remind(force=True):
+                print("No open to-dos to remind about.")
+        elif cmd == "away":
+            if self.sim:
+                self.sim.set_rssi(-95)           # pretend the band walked out of range
+            else:
+                self._far_since = time.time() - WANDER_SECONDS - 1
+        elif cmd == "home":
+            if self.sim:
+                self.sim.set_rssi(-50)
+            self._far_since, self._wander_alerted = 0.0, False
         elif cmd == "s":
             await self.flush()
             print(memory.summary_for_llm())
         elif cmd == "q":
-            raise KeyboardInterrupt
+            self._quit.set()
 
     async def demo(self):
         """A scripted run of the whole story, for testing without a microphone."""
@@ -344,17 +434,20 @@ class Kin:
         run_task = asyncio.create_task(runner.run(self.task))
         await asyncio.sleep(0.5)
         await self.connect_band()
-        jobs = [asyncio.create_task(self.chunk_loop())]
-        if self.args.demo:
-            jobs.append(asyncio.create_task(self.demo()))
+        self._quit = asyncio.Event()
+        jobs = [asyncio.create_task(self.chunk_loop()), asyncio.create_task(self.reminder_loop()),
+                asyncio.create_task(self.wander_loop())]
+        demo_task = asyncio.create_task(self.demo()) if self.args.demo else None
+        if demo_task:
+            jobs.append(demo_task)
         if not self.args.no_console:
             jobs.append(asyncio.create_task(self.console()))
         print(__doc__.split("Terminal keys")[1] if not self.args.demo else "Running demo...")
         try:
-            if self.args.demo and not self.args.stay:
-                await jobs[1]
-            else:
-                await run_task
+            waits = {run_task, asyncio.create_task(self._quit.wait())}
+            if demo_task and not self.args.stay:
+                waits.add(demo_task)
+            await asyncio.wait(waits, return_when=asyncio.FIRST_COMPLETED)
         finally:
             for j in jobs:
                 j.cancel()
