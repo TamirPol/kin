@@ -140,6 +140,7 @@ class KinRouter(FrameProcessor):
 
     async def _on_sentence(self, speaker: str, text: str, name: str = ""):
         from .app import WAKE, CLOSERS
+        woke = False                                         # "Hey Kin, ..." is always the wearer talking to Kin
         if self.app._enrolling:                              # someone is reading their voice sample: not a
             return                                           # question, not a memory
         if self.app.mode != "ask" and speaker != "kin":
@@ -151,15 +152,16 @@ class KinRouter(FrameProcessor):
                 asyncio.create_task(self.app.flush())       # save what was just heard first
                 self.app._ask_started = time.time()
                 self.app.publish_status(note="Listening for your question")
+                woke = True
                 rest = m.group(1).strip()
                 if rest:
                     text = rest
                 else:
                     await self.speak("Yes?")
                     return
-        if self.app.mode == "ask" and speaker != "wearer" and self.app.knows_wearer_voice():
-            await self.app.heard(speaker, text, name)        # someone else nearby: remember it, but it's not
-            return                                           # part of the wearer's question
+        if self.app.mode == "ask" and speaker != "wearer" and name and not woke:
+            await self.app.heard(speaker, text, name)        # confidently someone else (e.g. Sarah): remember
+            return                                           # it, but it's not part of the wearer's question
         if self.app.mode == "ask":
             if FILLER.match(text) and not self._question:
                 return                                       # "yeah" / "okay" / "mm" on its own isn't a question
