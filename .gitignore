@@ -1,0 +1,8 @@
+.env
+.venv/
+vexo-open-kit/
+kin.db
+__pycache__/
+snapshots/
+.pytest_cache/
+*.db

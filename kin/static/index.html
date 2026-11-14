@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kin · Family</title>
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+<header class="top">
+  <div class="brand">
+    <span class="logo" aria-hidden="true">♥</span>
+    <div>
+      <h1>Kin</h1>
+      <p class="sub">Looking after <strong id="wearer">…</strong></p>
+    </div>
+  </div>
+  <div class="status">
+    <span id="mode" class="badge mode-listen">LISTENING</span>
+    <span id="band" class="badge band-disconnected"><span class="dot"></span><span id="band-text">Band offline</span></span>
+    <span id="live" class="badge live-off" title="Live connection to Kin">● Live</span>
+  </div>
+  <p id="note" class="note" hidden></p>
+</header>
+
+<main class="grid">
+  <section class="panel alerts-panel" id="alerts-panel" aria-labelledby="h-alerts">
+    <h2 id="h-alerts">Alerts</h2>
+    <ul id="alerts" class="list"></ul>
+    <p class="empty" id="alerts-empty">No alerts. All calm.</p>
+  </section>
+
+  <section class="panel transcript-panel" aria-labelledby="h-transcript">
+    <h2 id="h-transcript">What Kin is hearing</h2>
+    <p class="legend"><span class="lg lg-hi">important</span><span class="lg lg-norm">noted</span><span class="lg lg-low">small talk</span><span class="lg lg-pend">thinking…</span></p>
+    <ol id="transcript" class="transcript"></ol>
+    <p class="empty" id="transcript-empty">Nothing heard yet.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="h-people">
+    <h2 id="h-people">People</h2>
+    <form id="person-form" class="person-form" autocomplete="off">
+      <input id="p-name" name="name" placeholder="Name (e.g. Sarah)" required maxlength="80">
+      <input id="p-rel" name="relationship" placeholder="Relationship (e.g. daughter)" maxlength="80">
+      <button type="submit">Add person</button>
+    </form>
+    <div id="people" class="cards"></div>
+    <p class="empty" id="people-empty">No one yet. Add family so Kin knows them.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="h-todos">
+    <h2 id="h-todos">To-dos</h2>
+    <ul id="todos" class="list"></ul>
+    <p class="empty" id="todos-empty">Nothing to do right now.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="h-items">
+    <h2 id="h-items">Where things are</h2>
+    <ul id="items" class="list items"></ul>
+    <p class="empty" id="items-empty">No items logged yet.</p>
+  </section>
+
+  <section class="panel" aria-labelledby="h-purchases">
+    <h2 id="h-purchases">Purchases</h2>
+    <p class="sub" id="limit"></p>
+    <ul id="purchases" class="list"></ul>
+    <p class="empty" id="purchases-empty">No purchases.</p>
+  </section>
+</main>
+
+<script src="/static/app.js"></script>
+</body>
+</html>
