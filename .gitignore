@@ -9,3 +9,4 @@ snapshots/
 voiceprints/
 kin.db.bak
 kin/_reload.py
+kin_settings.json

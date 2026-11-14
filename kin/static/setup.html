@@ -1,0 +1,218 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Kin Setup</title>
+<style>
+  :root { --bg:#f7f5f1; --card:#ffffff; --ink:#1d1b18; --muted:#6b665e; --line:#e7e2d9; --accent:#c8643b;
+          --accent-ink:#ffffff; --ok:#1f7a45; --okbg:#e3f3e9; --bad:#b4371f; --soft:#f1ede6; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+          --bg:#141311; --card:#1d1b19; --ink:#f3efe9; --muted:#a49e94; --line:#2f2c28; --accent:#e5875c;
+          --accent-ink:#1a1209; --ok:#5cc98a; --okbg:#18352a; --bad:#ff8a73; --soft:#262320; } }
+  * { box-sizing: border-box; }
+  body { margin:0; background:var(--bg); color:var(--ink);
+         font:17px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 32px 16px 80px; }
+  header { display:flex; align-items:baseline; justify-content:space-between; gap:12px; margin-bottom:24px; }
+  h1 { font-size: 30px; margin: 0; letter-spacing: -.01em; }
+  header a { color: var(--muted); text-decoration: none; font-size: 15px; }
+  header a:hover { color: var(--ink); }
+  .step { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 24px; margin-bottom: 16px; }
+  .step h2 { font-size: 20px; margin: 0 0 4px; display:flex; gap:12px; align-items:center; }
+  .num { width: 28px; height: 28px; border-radius: 50%; background: var(--soft); color: var(--muted);
+         display: grid; place-items: center; font-size: 14px; font-weight: 700; flex: none; }
+  .step.done .num { background: var(--ok); color: #fff; }
+  .hint { color: var(--muted); margin: 0 0 16px 40px; font-size: 15px; }
+  .body { margin-left: 40px; }
+  @media (max-width: 520px) { .hint, .body { margin-left: 0; } }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  input, select { font: inherit; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line);
+                  background: var(--bg); color: var(--ink); min-width: 0; }
+  input { flex: 1 1 200px; }
+  button { font: inherit; font-weight: 650; border: 0; border-radius: 12px; padding: 12px 18px; cursor: pointer;
+           background: var(--accent); color: var(--accent-ink); }
+  button.quiet { background: transparent; color: var(--muted); padding: 8px 10px; font-weight: 600; }
+  button.quiet:hover { color: var(--ink); }
+  button.ghost { background: var(--soft); color: var(--ink); }
+  button:disabled { opacity: .5; cursor: default; }
+  .tabs { display: inline-flex; background: var(--soft); border-radius: 12px; padding: 4px; margin-bottom: 12px; }
+  .tabs button { background: transparent; color: var(--muted); padding: 8px 14px; border-radius: 9px; }
+  .tabs button.on { background: var(--card); color: var(--ink); box-shadow: 0 1px 2px rgba(0,0,0,.08); }
+  .script { background: var(--soft); border-radius: 14px; padding: 18px 20px; font-size: 21px; line-height: 1.5; margin-bottom: 14px; }
+  .script small { display:block; font-size: 14px; color: var(--muted); margin-bottom: 6px; }
+  .rec { display:flex; align-items:center; gap: 14px; flex-wrap: wrap; }
+  .state { font-weight: 650; }
+  .state.ok { color: var(--ok); } .state.bad { color: var(--bad); }
+  .ring { width: 14px; height: 14px; border-radius: 50%; background: var(--bad); animation: pulse 1s infinite; display:none; }
+  .recording .ring { display:inline-block; }
+  @keyframes pulse { 50% { opacity: .3; } }
+  ul { list-style: none; padding: 0; margin: 0 0 14px; }
+  li.contact { display:flex; align-items:center; gap: 12px; padding: 12px 0; border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+  li.contact:last-child { border-bottom: 0; }
+  .who { flex: 1 1 200px; } .who b { display:block; } .who span { color: var(--muted); font-size: 15px; }
+  .link { font-size: 13px; color: var(--muted); word-break: break-all; }
+  .voices { color: var(--muted); font-size: 15px; margin-top: 12px; }
+  .saved { color: var(--ok); font-size: 15px; margin-left: 6px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>Set up Kin</h1>
+    <a href="/">Family view →</a>
+  </header>
+
+  <section class="step" id="stepWearer">
+    <h2><span class="num">1</span>Who wears the band?</h2>
+    <p class="hint">Kin uses this name when it talks to them and in alerts to the family.</p>
+    <div class="body">
+      <form class="row" id="wearerForm">
+        <input id="wearerName" placeholder="e.g. Grandpa Joe" autocomplete="off">
+        <button>Save</button>
+      </form>
+      <div id="wearerSaved" class="saved"></div>
+    </div>
+  </section>
+
+  <section class="step" id="stepVoice">
+    <h2><span class="num">2</span>Their voice</h2>
+    <p class="hint">10 seconds near the band so Kin always knows it's them. Kin also learns by itself, this just makes it reliable from the start.</p>
+    <div class="body" data-recorder="wearer"></div>
+  </section>
+
+  <section class="step" id="stepContacts">
+    <h2><span class="num">3</span>Emergency contacts</h2>
+    <p class="hint">They get a phone alert if there's a possible scam call, a fall, or if the band leaves home. Each person installs the free <b>ntfy</b> app and opens their own link.</p>
+    <div class="body">
+      <ul id="contactList"></ul>
+      <form class="row" id="contactForm">
+        <input id="contactName" placeholder="Name, e.g. Sarah" autocomplete="off">
+        <input id="contactRel" placeholder="Relationship, e.g. daughter" autocomplete="off" style="flex:1 1 160px">
+        <button>Add</button>
+      </form>
+    </div>
+  </section>
+
+  <section class="step" id="stepFamily">
+    <h2><span class="num">4</span>Family voices <span style="font-weight:500;color:var(--muted);font-size:15px">optional</span></h2>
+    <p class="hint">So Kin can tell them who's visiting. Kin also learns names when people introduce themselves.</p>
+    <div class="body">
+      <div class="row" style="margin-bottom:12px">
+        <input id="famName" placeholder="Name, e.g. Sarah" autocomplete="off">
+        <input id="famRel" placeholder="Relationship, e.g. daughter" autocomplete="off" style="flex:1 1 160px">
+      </div>
+      <div data-recorder="family"></div>
+      <div class="voices" id="voices"></div>
+    </div>
+  </section>
+</main>
+
+<template id="recorderTpl">
+  <div class="tabs"><button type="button" class="on" data-mode="script">Read a script</button><button type="button" data-mode="free">Talk freely</button></div>
+  <div class="script"><small class="scriptLabel">Read this out loud, at a normal pace:</small><span class="scriptText"></span></div>
+  <div class="rec"><button type="button" class="recBtn">Record 10 seconds</button><span class="ring"></span><span class="state"></span></div>
+</template>
+
+<script>
+const $ = (id) => document.getElementById(id);
+let wearer = "Grandpa Joe";
+const SCRIPTS = {
+  wearer: (n) => `Hello Kin, this is ${n}. I'm reading this so you can learn my voice. This morning I had coffee by the window, and later I'd like to call my family and take a short walk. I usually keep my keys by the door and my glasses on the kitchen table.`,
+  family: (n, r) => `Hi, this is ${n}${r ? `, ${wearer}'s ${r}` : ""}. I'm recording my voice so Kin can tell ${wearer} who's visiting. I usually come by on weekends, and I love hearing how the week went.`,
+};
+const FREE = "Just talk normally for 10 seconds: about your morning, your family, or your favourite meal. Anything works.";
+
+function recorder(el) {
+  el.append($("recorderTpl").content.cloneNode(true));
+  const kind = el.dataset.recorder, text = el.querySelector(".scriptText"), label = el.querySelector(".scriptLabel");
+  let mode = "script";
+  const render = () => {
+    const n = kind === "wearer" ? wearer : ($("famName").value.trim() || "your name");
+    text.textContent = mode === "free" ? FREE : SCRIPTS[kind](n, kind === "family" ? $("famRel").value.trim() : "");
+    label.textContent = mode === "free" ? "Ideas:" : "Read this out loud, at a normal pace:";
+  };
+  el.querySelectorAll(".tabs button").forEach((b) => b.onclick = () => {
+    mode = b.dataset.mode; el.querySelectorAll(".tabs button").forEach((x) => x.classList.toggle("on", x === b)); render();
+  });
+  el.render = render;
+  const btn = el.querySelector(".recBtn"), state = el.querySelector(".state");
+  btn.onclick = async () => {
+    const name = kind === "wearer" ? wearer : $("famName").value.trim();
+    const role = kind === "wearer" ? "wearer" : ($("famRel").value.trim().split(" ")[0] || "family");
+    if (!name) { $("famName").focus(); return; }
+    const r = await fetch("/api/command", { method: "POST", headers: { "Content-Type": "application/json" },
+                                            body: JSON.stringify({ cmd: `enroll ${role} ${name}` }) });
+    if (!r.ok) { state.className = "state bad"; state.textContent = "Kin isn't running."; return; }
+    btn.disabled = true; el.classList.add("recording"); state.className = "state";
+    let left = 10; state.textContent = `Recording… ${left}`;
+    el._timer = setInterval(() => { left--; state.textContent = left > 0 ? `Recording… ${left}` : "Saving…";
+                                    if (left <= 0) clearInterval(el._timer); }, 1000);
+    el._pending = name;
+  };
+  el.finish = (ok, msg) => { clearInterval(el._timer); btn.disabled = false; el.classList.remove("recording");
+                             state.className = "state " + (ok ? "ok" : "bad"); state.textContent = msg; };
+  render();
+  return el;
+}
+const recs = [...document.querySelectorAll("[data-recorder]")].map(recorder);
+$("famName").oninput = $("famRel").oninput = () => recs[1].render();
+
+async function loadSettings() {
+  const s = await (await fetch("/api/settings")).json();
+  wearer = s.wearer.name; $("wearerName").value = wearer; recs.forEach((r) => r.render());
+  $("stepWearer").classList.toggle("done", !!wearer);
+  const list = $("contactList"); list.innerHTML = "";
+  s.contacts.forEach((c) => {
+    const li = document.createElement("li"); li.className = "contact";
+    const who = document.createElement("div"); who.className = "who";
+    const b = document.createElement("b"); b.textContent = c.name;
+    const sp = document.createElement("span"); sp.textContent = c.relationship || "emergency contact";
+    const link = document.createElement("div"); link.className = "link"; link.textContent = "Their link: " + c.subscribe_url;
+    who.append(b, sp, link);
+    const copy = document.createElement("button"); copy.className = "quiet"; copy.textContent = "Copy link";
+    copy.onclick = async () => { try { await navigator.clipboard.writeText(c.subscribe_url); copy.textContent = "Copied"; } catch (e) {} };
+    const test = document.createElement("button"); test.className = "ghost"; test.textContent = "Send test alert";
+    test.onclick = async () => { const r = await (await fetch(`/api/contacts/${c.id}/test`, { method: "POST" })).json();
+                                 test.textContent = r.ok ? "Sent ✓" : "Couldn't send"; };
+    const rm = document.createElement("button"); rm.className = "quiet"; rm.textContent = "Remove";
+    rm.onclick = async () => { if (confirm(`Stop sending alerts to ${c.name}?`)) { await fetch(`/api/contacts/${c.id}`, { method: "DELETE" }); loadSettings(); } };
+    li.append(who, copy, test, rm); list.append(li);
+  });
+  $("stepContacts").classList.toggle("done", s.contacts.length > 0);
+}
+async function loadVoices() {
+  try {
+    const v = (await (await fetch("/api/voices")).json()).voices || [];
+    const named = v.filter((x) => x.name);
+    $("stepVoice").classList.toggle("done", named.some((x) => x.role === "wearer"));
+    $("voices").textContent = named.length ? "Voices Kin knows: " + named.map((x) => x.name + (x.role === "wearer" ? " (wears the band)" : x.role ? ` (${x.role})` : "")).join(", ") : "";
+    $("stepFamily").classList.toggle("done", named.some((x) => x.role && x.role !== "wearer"));
+  } catch (e) {}
+}
+$("wearerForm").onsubmit = async (e) => {
+  e.preventDefault(); const name = $("wearerName").value.trim(); if (!name) return;
+  const r = await fetch("/api/settings/wearer", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name }) });
+  $("wearerSaved").textContent = r.ok ? "Saved ✓" : "Couldn't save"; loadSettings();
+};
+$("contactForm").onsubmit = async (e) => {
+  e.preventDefault(); const name = $("contactName").value.trim(); if (!name) return;
+  await fetch("/api/contacts", { method: "POST", headers: { "Content-Type": "application/json" },
+                                 body: JSON.stringify({ name, relationship: $("contactRel").value.trim() }) });
+  $("contactName").value = ""; $("contactRel").value = ""; loadSettings();
+};
+function connect() {
+  const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
+  ws.onmessage = (ev) => {
+    let e; try { e = JSON.parse(ev.data); } catch { return; }
+    if (e.table === "enroll" && e.row.state !== "recording") {
+      const rec = recs.find((r) => r._pending === e.row.name) || recs[0];
+      rec.finish(e.row.state === "done", e.row.text); loadVoices();
+    }
+  };
+  ws.onclose = () => setTimeout(connect, 1500);
+}
+loadSettings(); loadVoices(); connect();
+</script>
+</body>
+</html>

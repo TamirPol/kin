@@ -107,6 +107,13 @@ def family_contact() -> str:
     name = _clean_name(FAMILY_CONTACT)
     if name:
         return name
+    try:                                                # an emergency contact from /setup comes first
+        from . import settings
+        name = _clean_name(settings.first_contact_name())
+        if name:
+            return name
+    except Exception:
+        pass
     try:
         for p in memory.people():                       # most recently seen first
             name = _clean_name((p or {}).get("name"))

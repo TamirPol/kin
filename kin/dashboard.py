@@ -95,6 +95,15 @@ class CommandIn(BaseModel):
     cmd: str
 
 
+class NameIn(BaseModel):
+    name: str
+
+
+class ContactIn(BaseModel):
+    name: str
+    relationship: str = ""
+
+
 class PersonIn(BaseModel):
     name: str
     relationship: str = ""
@@ -123,6 +132,57 @@ def create_app() -> FastAPI:
             raise HTTPException(503, "Kin is not running")
         _command_handler(cmd)
         return {"ok": True}
+
+    @app.get("/setup")
+    def setup_page():
+        return FileResponse(STATIC_DIR / "setup.html", headers={"Cache-Control": "no-store"})
+
+    @app.get("/api/settings")
+    def get_settings():
+        from . import settings, notify
+        s = settings.get()
+        for c in s["contacts"]:
+            c["subscribe_url"] = f"{notify.SERVER}/{c['topic']}"
+        return s
+
+    @app.post("/api/settings/wearer")
+    def set_wearer(n: NameIn):
+        from . import settings
+        try:
+            s = settings.set_wearer(n.name)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        publish({"table": "status", "row": {"note": f"Kin is now looking after {s['wearer']['name']}"}})
+        return s
+
+    @app.post("/api/contacts")
+    def add_contact(c: ContactIn):
+        from . import settings, notify
+        try:
+            row = settings.add_contact(c.name, c.relationship)
+        except ValueError as e:
+            raise HTTPException(400, str(e))
+        if c.relationship:
+            memory.upsert_person(row["name"], relationship=row["relationship"])
+        row["subscribe_url"] = f"{notify.SERVER}/{row['topic']}"
+        return row
+
+    @app.delete("/api/contacts/{cid}")
+    def remove_contact(cid: str):
+        from . import settings
+        if not settings.remove_contact(cid):
+            raise HTTPException(404, "no such contact")
+        return {"ok": True}
+
+    @app.post("/api/contacts/{cid}/test")
+    def test_contact(cid: str):
+        from . import settings, notify
+        c = next((x for x in settings.contacts() if x["id"] == cid), None)
+        if not c:
+            raise HTTPException(404, "no such contact")
+        ok = notify.send("Kin test alert", f"Hi {c['name']}, you'll get alerts about {config.WEARER_NAME} here.",
+                         3, "white_check_mark", to=[c["topic"]])
+        return {"ok": ok}
 
     @app.get("/api/summary")
     def summary_today():

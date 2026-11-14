@@ -572,9 +572,8 @@ class Kin:
         res = await asyncio.to_thread(brain.digest, lines)
         if res and res.get("category") == "money_safety" and time.time() - getattr(self, "_warned_scam", 0) > 120:
             self._warned_scam = time.time()
-            fam = next((p["name"] for p in memory.people()
-                        if (p["relationship"] or "").lower() in ("daughter", "son", "child", "caregiver")), "")
-            who = fam or "your family"
+            from . import safety
+            who = safety.family_contact()
             memory.add_alert("scam", f"Money request heard in a conversation with {config.WEARER_NAME}. Kin warned him.")
             log.warning("SCAM (from the conversation): money request")
             await self.router.speak(f"That sounded like someone asking you for money. Please don't send anything "
@@ -810,6 +809,8 @@ class Pretty(logging.Formatter):
 
 
 def main():
+    from . import settings
+    settings.apply()                                  # the wearer's name from /setup
     ap = argparse.ArgumentParser(description="Kin: memory companion on a Vexo band")
     ap.add_argument("--band", type=int, default=config.BAND_NUMBER)
     ap.add_argument("--sim", action="store_true", help="pretend band, no hardware")

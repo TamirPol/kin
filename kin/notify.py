@@ -55,11 +55,28 @@ def subscribe_url() -> str:
     return f"{SERVER}/{topic()}"
 
 
-def send(title: str, body: str, priority: int = 3, tags: str = "") -> bool:
-    """Push one notification. Never raises; returns True on success."""
+def topics() -> list[str]:
+    """Every emergency contact's own topic (from /setup); the household topic if none are set up."""
+    try:
+        from . import settings
+        t = [c["topic"] for c in settings.contacts() if c.get("topic")]
+    except Exception:
+        t = []
+    return t or [topic()]
+
+
+def send(title: str, body: str, priority: int = 3, tags: str = "", to: list[str] | None = None) -> bool:
+    """Push one notification to every emergency contact (or the given topics). Never raises."""
     if os.environ.get("KIN_NTFY", "on").lower() in ("off", "0", "false"):
         return False
-    req = urllib.request.Request(subscribe_url(), data=body.encode(), method="POST", headers={
+    ok = False
+    for t in (to or topics()):
+        ok = _send_one(t, title, body, priority, tags) or ok
+    return ok
+
+
+def _send_one(t: str, title: str, body: str, priority: int, tags: str) -> bool:
+    req = urllib.request.Request(f"{SERVER}/{t}", data=body.encode(), method="POST", headers={
         "Title": title.encode("utf-8").decode("latin-1", "ignore"),
         "Priority": str(priority), "Tags": tags})
     try:
