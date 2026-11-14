@@ -109,7 +109,7 @@ class KinRouter(FrameProcessor):
     def _speaker_of(self, frame: TranscriptionFrame) -> str:
         if isinstance(frame.result, dict) and frame.result.get("kin_speaker"):
             return frame.result["kin_speaker"]
-        return self.app.speaker_label(getattr(frame, "speaker", None))
+        return self.app.speaker_label(getattr(frame, "speaker", None), frame.result)
 
     async def _on_sentence(self, speaker: str, text: str):
         if self.app.mode == "ask":

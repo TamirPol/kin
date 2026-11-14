@@ -56,6 +56,9 @@ class Kin:
         self._levels: deque = deque(maxlen=150)               # (time, dB) for the last 3 s
         self._speaker_db: dict[str, list[float]] = {}
         self._last_wearer: str | None = None
+        self._pkt_db: list[float] = []
+        self._last_tap = 0.0
+        self._ask_started = 0.0
         self._chunk: list[dict] = []
         self._chunk_started = 0.0
         self._last_heard = 0.0
@@ -128,7 +131,8 @@ class Kin:
         self.band.on("disconnect", self._on_disconnect)
         self.band.on("reconnected", lambda e: self._set_band("connected"))
         self.band.on("link", self._on_link)
-        await self.band.set_events(kinds=["tap", "double-tap", "free-fall"])
+        # a firmer tap threshold (default 0.8 g) so walking and gesturing don't count as double-taps
+        await self.band.set_events(kinds=["tap", "double-tap", "free-fall"], tap_threshold=1.4)
         await self.band.configure(audio=True, events=True)     # light goes solid blue: mic is on
         if self.band.transport_kind in ("ble", "sim"):
             try:
@@ -209,7 +213,9 @@ class Kin:
             return
         pcm = self._decoder.feed(a)
         from vexo_open.audio import level_db
-        self._levels.append((time.time(), level_db(pcm)))
+        db = level_db(pcm)
+        self._levels.append((time.time(), db))
+        self._pkt_db.append(db)                   # index i = audio time i*20 ms, Deepgram's clock
         self._audio_packets = getattr(self, "_audio_packets", 0) + 1
         await self.source.feed(pcm)
 
@@ -226,6 +232,16 @@ class Kin:
                 "db": round(max(recent), 1) if recent else None,
                 "arriving": bool(last_t and now - last_t < 2),
                 "speaking": self.speaking, "mode": self.mode, "band": self.band_state}})
+
+    async def ask_timeout_loop(self):
+        """Back to listening if no question comes within 10 s of a double-tap."""
+        while True:
+            await asyncio.sleep(1)
+            if (self.mode == "ask" and not self.speaking and not self.router._question and not self.router._last_q
+                    and time.time() - self._ask_started > 10):
+                self.mode = "listen"
+                log.info("Back to listening (no question)")
+                self.publish_status()
 
     async def mic_loop(self):
         """Every 10 s: is sound arriving from the band, and how loud (quiet room ~ -50 dB, talking ~ -30)."""
@@ -244,6 +260,10 @@ class Kin:
             last = n
 
     async def _on_double_tap(self, e=None):
+        now = time.time()
+        if now - self._last_tap < 2.0:              # one gesture, several events: ignore repeats
+            return
+        self._last_tap = now
         if self._fall_task and not self._fall_task.done():
             self._fall_task.cancel()
             memory.add_alert("fall_ok", f"{config.WEARER_NAME} double-tapped: they are fine.")
@@ -252,6 +272,7 @@ class Kin:
             return
         if self.mode == "listen":
             self.mode = "ask"
+            self._ask_started = now
             log.info("MODE: ask (double-tap)")
             self.publish_status(note="Listening for your question")
             await self.router.speak("Yes?")
@@ -274,7 +295,20 @@ class Kin:
         await self.router.speak("I'm letting your family know.")
 
     # ------------------------------------------------------------------ speakers
-    def speaker_label(self, spk) -> str:
+    def _utterance_db(self, spk, result) -> float | None:
+        """Loudness of exactly this speaker's words, using Deepgram's word timings."""
+        try:
+            words = result.channel.alternatives[0].words or []
+            mine = [w for w in words if str(w.speaker) == str(spk.label)]
+            if not mine or not self._pkt_db:
+                return None
+            i0, i1 = int(mine[0].start / 0.02), int(mine[-1].end / 0.02) + 1
+            seg = sorted(self._pkt_db[max(0, i0):i1])
+            return seg[int(len(seg) * 0.8)] if seg else None
+        except Exception:
+            return None
+
+    def speaker_label(self, spk, result=None) -> str:
         """Turns Deepgram's speaker number into 'wearer' or 'speaker N'.
 
         Deepgram tells the voices apart; we decide which voice is the wearer by RELATIVE loudness:
@@ -284,10 +318,12 @@ class Kin:
         """
         num = getattr(spk, "number", None) if spk else None
         label = f"speaker {num}" if num is not None else "speaker ?"
-        now = time.time()
-        recent = sorted(db for t, db in self._levels if now - t < 3.0)
-        if recent:
-            loud = recent[int(len(recent) * 0.8)]                # typical loud part of this utterance
+        loud = self._utterance_db(spk, result) if spk is not None else None
+        if loud is None:                                        # fallback: the last 3 seconds
+            now = time.time()
+            recent = sorted(db for t, db in self._levels if now - t < 3.0)
+            loud = recent[int(len(recent) * 0.8)] if recent else None
+        if loud is not None:
             self._speaker_db.setdefault(label, []).append(loud)
             self._speaker_db[label] = self._speaker_db[label][-20:]
         forced = os.environ.get("KIN_WEARER_SPEAKER")
@@ -494,7 +530,8 @@ class Kin:
         await self.connect_band()
         self._quit = asyncio.Event()
         jobs = [asyncio.create_task(self.chunk_loop()), asyncio.create_task(self.reminder_loop()),
-                asyncio.create_task(self.wander_loop()), asyncio.create_task(self.mic_loop()), asyncio.create_task(self.meter_loop())]
+                asyncio.create_task(self.wander_loop()), asyncio.create_task(self.mic_loop()), asyncio.create_task(self.meter_loop()),
+                asyncio.create_task(self.ask_timeout_loop())]
         demo_task = asyncio.create_task(self.demo()) if self.args.demo else None
         if demo_task:
             jobs.append(demo_task)
