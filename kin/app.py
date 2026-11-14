@@ -36,7 +36,7 @@ log = logging.getLogger("kin")
 CHUNK_PAUSE = 6.0          # seconds of quiet that end a conversation chunk
 CHUNK_MAX = 30.0           # digest at least this often while people keep talking
 WEARER_MARGIN_DB = 4.0     # the wearer's voice must be this much louder (median) than the next voice
-FALL_WAIT = 15.0           # seconds to double-tap "I'm fine" after a fall
+FALL_WAIT = 10.0           # seconds to answer the fall check, counted after Kin has asked
 REMIND_AFTER = float(__import__("os").environ.get("KIN_REMIND_AFTER", "600"))  # remind of a to-do this long after it was made
 REMIND_QUIET = 20.0        # only remind when nobody has spoken for this long
 WANDER_RSSI = -88          # dBm: weaker than this means the band is far from the laptop/base
@@ -399,14 +399,12 @@ class Kin:
 
     async def _on_double_tap(self, e=None):
         now = time.time()
+        log.info("(band: double-tap)")
         if now - self._last_tap < 2.0:              # one gesture, several events: ignore repeats
             return
         self._last_tap = now
-        if self._fall_task and not self._fall_task.done():
-            self._fall_task.cancel()
-            memory.add_alert("fall_ok", f"{config.WEARER_NAME} double-tapped: they are fine.")
-            self.publish_status(note="They're okay")
-            await self.router.speak("Okay, glad you're alright.")
+        if self.fall_check_active():
+            await self.fall_ok("double-tapped")
             return
         if self.mode == "listen":
             self.mode = "ask"
@@ -426,13 +424,32 @@ class Kin:
         self._fall_task = asyncio.create_task(self._fall_check())
 
     async def _fall_check(self):
+        """'Are you okay?' -> FALL_WAIT seconds to answer (double-tap OR say "I'm fine"), counted from when Kin
+        has finished asking. Only no answer alerts the family's phones."""
         memory.add_alert("fall", f"Possible fall detected for {config.WEARER_NAME}. Checking in.")
         self.publish_status(note="Possible fall: checking in")
-        await self.router.speak("Are you okay? Double-tap your band if you're fine.")
+        await self.router.speak("Are you okay? Say I'm fine, or double-tap your band.")
+        t0 = time.time()
+        await asyncio.sleep(0.5)
+        while self.speaking and time.time() - t0 < 10:      # the countdown starts once the question is heard
+            await asyncio.sleep(0.2)
         await asyncio.sleep(FALL_WAIT)
         memory.add_alert("fall_emergency", f"No response after a possible fall. Family should check on "
                                            f"{config.WEARER_NAME} now.")
         await self.router.speak("I'm letting your family know.")
+
+    def fall_check_active(self) -> bool:
+        return bool(self._fall_task and not self._fall_task.done())
+
+    async def fall_ok(self, how: str = "double-tapped"):
+        """The wearer answered the fall check."""
+        if not self.fall_check_active():
+            return
+        self._fall_task.cancel()
+        memory.add_alert("fall_ok", f"{config.WEARER_NAME} {how}: they are fine.")
+        self.publish_status(note="They're okay")
+        log.info("Fall check: %s %s", config.WEARER_NAME, how)
+        await self.router.speak("Okay, glad you're alright.")
 
     # ------------------------------------------------------------------ speakers
     def _utterance_db(self, spk, result) -> float | None:

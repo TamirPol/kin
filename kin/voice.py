@@ -29,6 +29,8 @@ from . import config, memory
 
 log = logging.getLogger("kin.voice")
 import re as _re
+FINE = _re.compile(r"\b(i'?m|i am|im)\s+(fine|ok(ay)?|alright|all right|good|not hurt)\b|\b(yes|yeah)\b.{0,12}\b(fine|ok(ay)?)\b|"
+                   r"^\W*(fine|okay|ok|all good|i'?m good)\W*$", _re.I)
 FILLER = _re.compile(r"^\W*(yeah|yes|yep|yup|okay|ok|mm+|hmm+|uh+|um+|uh huh|right|sure|alright|cool|wow|oh)\W*$", _re.I)
 
 
@@ -141,6 +143,9 @@ class KinRouter(FrameProcessor):
     async def _on_sentence(self, speaker: str, text: str, name: str = ""):
         from .app import WAKE, CLOSERS
         woke = False                                         # "Hey Kin, ..." is always the wearer talking to Kin
+        if self.app.fall_check_active() and FINE.search(text):
+            await self.app.fall_ok("said they're fine")      # "I'm fine" answers the fall check, like a double-tap
+            return
         if self.app._enrolling:                              # someone is reading their voice sample: not a
             return                                           # question, not a memory
         if self.app.mode != "ask" and speaker != "kin":
