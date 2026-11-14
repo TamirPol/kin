@@ -561,9 +561,9 @@ class Kin:
         if not re.search(r"(\$\s?\d|\b\d[\d,]* ?(dollars|bucks)\b|\b(send|wire|transfer|give)\b.*\b(money|cash|\$)|"
                          r"\bgift ?cards?\b|\bbail\b)", text, re.I):
             return
-        if time.time() - getattr(self, "_warned_scam", 0) < 120:
-            return
-        self._warned_scam = time.time()
+        if time.time() - getattr(self, "_money_flag_t", 0) < 120:   # own timer: must not silence a later
+            return                                                   # spoken warning about a real scam call
+        self._money_flag_t = time.time()
         memory.add_alert("scam", f"{config.WEARER_NAME} was asked for money and asked Kin about it. Kin told him "
                                  "to check with family first.")
         log.warning("SCAM: money request mentioned to Kin")

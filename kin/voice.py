@@ -265,7 +265,12 @@ def make_llm_parts(app):
         a = params.arguments
         try:
             from . import safety
-            r = await asyncio.to_thread(safety.purchase, a["item"], a["merchant"], int(a["amount_cents"]))
+            amount = int(a.get("amount_cents") or 0)
+            if amount <= 0:                                 # the model often doesn't know the price: estimate it
+                est = await asyncio.to_thread(safety.parse_purchase_request,
+                                              f"reorder {a['item']} from {a['merchant']}")
+                amount = int((est or {}).get("amount_cents") or 0) or 1500
+            r = await asyncio.to_thread(safety.purchase, a["item"], a["merchant"], amount)
         except ImportError:
             r = {"status": "blocked", "reason": "purchasing is not set up yet"}
         await params.result_callback(r)

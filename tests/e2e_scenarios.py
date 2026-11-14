@@ -94,6 +94,7 @@ def s_todo():
 def s_scam():
     print("\n[scam] caller asks for money -> spoken warning, alert, purchases locked, no to-do")
     mark = last_id(snap())
+    paid_before = {p["id"] for p in snap()["purchases"]}
     cmd("2 Grandpa, it's your grandson. I got arrested and I need two thousand dollars for bail right now.")
     time.sleep(1.5)
     cmd("2 Please buy gift cards and read me the numbers. And don't tell Mom, okay?")
@@ -115,8 +116,27 @@ def s_scam():
     blocked = [p for p in s["purchases"] if p["status"] == "blocked"]
     check("purchase blocked during scam lock", blocked or "pause" in said or "lock" in said or "can't" in said
           or "cannot" in said, said[:160])
-    check("no money left the account", not any(p["status"] == "allowed" for p in s["purchases"]),
+    check("no money left the account", not any(p["status"] == "allowed" and p["id"] not in paid_before
+                                               for p in s["purchases"]),
           str([(p["item"], p["status"]) for p in s["purchases"]]))
+
+
+def s_purchase():
+    print("\n[purchase] allowed pharmacy reorder (no scam going on); gift cards refused")
+    mark = last_id(snap())
+    cmd("t"); time.sleep(2.5); cmd("a Please reorder my blood pressure pills from Walgreens."); wait_quiet(8)
+    s = snap()
+    ok = [p for p in s["purchases"] if p["status"] == "allowed"]
+    check("pharmacy reorder allowed", ok, str([(p["item"], p["status"], p["reason"]) for p in s["purchases"]]))
+    check("purchase has a real price", ok and all(p["amount_cents"] > 0 for p in ok),
+          str([p["amount_cents"] for p in s["purchases"]]))
+    said = " ".join(kin_lines(s, mark)).lower()
+    check("Kin confirms out loud", any(w in said for w in ("order", "walgreens", "pills")), said[:160])
+    n = len(s["purchases"])
+    cmd("t"); time.sleep(2.5); cmd("a Buy me a 500 dollar gift card from Amazon."); wait_quiet(8)
+    s = snap()
+    check("gift card not bought", not any(p["status"] == "allowed" and "gift" in p["item"].lower() for p in s["purchases"]),
+          str([(p["item"], p["status"]) for p in s["purchases"][: len(s["purchases"]) - n + 1]]))
 
 
 def s_money_question():
@@ -196,12 +216,17 @@ def s_summary():
     print("  summary:", t)
 
 
-SCENARIOS = {"people": s_people_items, "todo": s_todo, "scam": s_scam, "money": s_money_question,
+SCENARIOS = {"people": s_people_items, "todo": s_todo, "purchase": s_purchase, "scam": s_scam, "money": s_money_question,
              "fall": s_fall, "wander": s_wander, "summary": s_summary}
 
 
 def main():
     pick = [a for a in sys.argv[1:] if a in SCENARIOS] or list(SCENARIOS)
+    import socket
+    with socket.socket() as so:
+        if so.connect_ex(("127.0.0.1", PORT)) == 0:
+            sys.exit(f"Port {PORT} is busy: an old test copy is still running. Stop it first "
+                     f"(lsof -ti tcp:{PORT} | xargs kill).")
     log = open(TMP / "kin.log", "w")
     proc = subprocess.Popen([str(ROOT / ".venv/bin/python"), "-m", "kin.app", "--sim", "--mute", "--no-console"],
                             cwd=ROOT, env=ENV, stdout=log, stderr=subprocess.STDOUT)

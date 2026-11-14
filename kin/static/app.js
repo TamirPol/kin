@@ -163,8 +163,11 @@
     if (!flashTimer) document.title = baseTitle;
 
     const open = state.alerts.filter(isOpen);
+    // a fall he answered "I'm fine" to is over, and a fall that became an emergency shows once, as the emergency
+    const settled = (a) => a.kind === "fall" && (okAfter(a, state.alerts) ||
+      state.alerts.some((b) => b.kind === "fall_emergency" && b.ts >= a.ts && b.ts - a.ts < 90));
     const rank = (x) => (URGENT.has(x.a.kind) ? 0 : x.m.tone === "bad" ? 1 : 2);
-    const msgs = open.map((a) => ({ a, m: describe(a, open) })).filter((x) => x.m)
+    const msgs = open.filter((a) => !settled(a)).map((a) => ({ a, m: describe(a, open) })).filter((x) => x.m)
       .sort((x, y) => (rank(x) === rank(y) ? y.a.ts - x.a.ts : rank(x) - rank(y)));
 
     sub.replaceChildren(); det.replaceChildren();
