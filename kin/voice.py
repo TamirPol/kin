@@ -309,7 +309,7 @@ def make_tts():
                                     settings=ElevenLabsTTSService.Settings(voice=config.ELEVENLABS_VOICE_ID))
     if config.OPENAI_API_KEY and want in ("", "openai", "elevenlabs"):
         from pipecat.services.openai.tts import OpenAITTSService
-        log.info("Voice: OpenAI text-to-speech (no ElevenLabs key).")
+        log.info("Voice: OpenAI text-to-speech%s", " (KIN_VOICE=openai: saving ElevenLabs characters)" if want == "openai" else " (no ElevenLabs key)")
         return OpenAITTSService(api_key=config.OPENAI_API_KEY, settings=OpenAITTSService.Settings(
             voice=os.environ.get("KIN_OPENAI_VOICE", "sage"),
             instructions="Speak warmly, slowly and calmly, like a kind friend talking to an older person."))
