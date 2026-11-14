@@ -67,12 +67,26 @@ class TypedSTT(FrameProcessor):
         await self.push_frame(f)
 
 
+def _keyterms() -> list[str]:
+    """Words Deepgram should listen for: Kin, the wearer, and everyone Kin has met (names get misheard)."""
+    words = ["Kin", config.WEARER_NAME.split()[-1]]
+    try:
+        words += [p["name"] for p in memory.people()[:40]]
+    except Exception:
+        pass
+    seen, out = set(), []
+    for w in words:
+        if w and w.lower() not in seen:
+            seen.add(w.lower()); out.append(w)
+    return out[:50]
+
+
 def make_stt():
     if config.DEEPGRAM_API_KEY:
         from pipecat.services.deepgram.stt import DeepgramSTTService
         return DeepgramSTTService(
             api_key=config.DEEPGRAM_API_KEY, sample_rate=16000, mip_opt_out=True,
-            settings=DeepgramSTTService.Settings(model="nova-3-general", diarize=True, keyterm=["Kin"],
+            settings=DeepgramSTTService.Settings(model="nova-3-general", diarize=True, keyterm=_keyterms(),
                                                  smart_format=True, punctuate=True, interim_results=True),
         )
     log.warning("No Deepgram key: using typed transcripts (type lines in the terminal).")
@@ -124,6 +138,8 @@ class KinRouter(FrameProcessor):
 
     async def _on_sentence(self, speaker: str, text: str, name: str = ""):
         from .app import WAKE, CLOSERS
+        if self.app._enrolling:                              # someone is reading their voice sample: not a
+            return                                           # question, not a memory
         if self.app.mode != "ask" and speaker != "kin":
             m = WAKE.match(text)
             if m:                                            # "Hey Kin, where are my keys?"
@@ -167,7 +183,11 @@ class KinRouter(FrameProcessor):
         self.app.publish_status(note=f"Question: {question}")
         if config.OPENAI_API_KEY:
             self._last_q = question
-            self.app.refresh_system_prompt()
+            si = self.app.refresh_system_prompt()
+            if si and self.app.llm is not None:
+                from pipecat.frames.frames import LLMUpdateSettingsFrame
+                await self.push_frame(LLMUpdateSettingsFrame(
+                    delta=type(self.app.llm).Settings(system_instruction=si), service=self.app.llm))
             await self.push_frame(LLMMessagesAppendFrame(
                 messages=[{"role": "user", "content": question}], run_llm=True))
         else:

@@ -100,7 +100,8 @@ class Kin:
             parts.append(self.ctx.assistant())
         self.task = PipelineWorker(Pipeline(parts),
                                  params=PipelineParams(audio_in_sample_rate=16000, audio_out_sample_rate=24000),
-                                 cancel_on_idle_timeout=False)
+                                 cancel_on_idle_timeout=False, cancel_runner_on_idle_timeout=False,
+                                 idle_timeout_secs=None)
 
     def knows_wearer_voice(self) -> bool:
         try:
@@ -120,7 +121,17 @@ class Kin:
 
     def refresh_system_prompt(self):
         if self.llm:                             # fresh memory in the system prompt before each question
-            self.llm._settings.system_instruction = voice.system_prompt()
+            # Pipecat rebuilds the instruction from its *base* copy whenever Kin speaks, so update the base
+            # (the KinRouter also sends an official LLMUpdateSettingsFrame right before the question)
+            si = voice.system_prompt()
+            self.llm._settings.system_instruction = si
+            if hasattr(self.llm, "_base_system_instruction"):
+                self.llm._base_system_instruction = si
+                try:
+                    self.llm._compose_system_instruction()
+                except Exception:
+                    pass
+            return si
 
     # ------------------------------------------------------------------ band
     async def connect_band(self):
@@ -576,6 +587,15 @@ class Kin:
 
     async def heard(self, speaker: str, text: str, name: str = ""):
         name = config.WEARER_NAME if speaker == "wearer" else name
+        raw = text
+        try:                                           # careful AI cleanup of clear mishearings, with context
+            from . import cleanup
+            recent = [f"{l['name'] or l['speaker']}: {l['text']}" for l in memory.recent_lines(300)[-6:]]
+            text, fixed = await asyncio.to_thread(cleanup.clean, text, recent)
+            if fixed:
+                log.info("(cleaned up: %r -> %r)", raw, text)
+        except Exception:
+            text = raw
         await self.money_watch(speaker, text)
         if not name:
             p = memory.person_by_speaker(speaker)

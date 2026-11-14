@@ -70,7 +70,7 @@ def check(name, ok, detail=""):
 def s_todo():
     print("\n[todo] create by voice, ask, reminder, complete by voice")
     cmd("w I need to call the pharmacy this afternoon.")
-    time.sleep(9)                                           # chunk pause -> brain
+    time.sleep(13)                                          # chunk pause -> cleanup -> brain
     s = snap()
     todo = next((t for t in s["todos"] if "pharmacy" in t["text"].lower()), None)
     check("to-do created from speech", todo, str([t["text"] for t in s["todos"]]))

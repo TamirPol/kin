@@ -1,147 +1,134 @@
 # Pitch, live demo and judge Q&A
 
-## 90-second spoken pitch (~220 words)
+Judging criteria: **Approach & Idea · Product–Technical · Presentation · Product–Design · X Factor ·
+AI Relevance & Depth.** Each pitch beat below is tagged with the criterion it answers.
 
-> **[Hold up the band.]**
->
-> Nearly seven million Americans live with Alzheimer's, and millions more with early memory loss. It doesn't start
-> with forgetting how to cook. It starts with a grandchild walking in and you can't find their name. You
-> ask your daughter the same question three times. And a stranger calls saying "Grandpa, it's me, I'm in
-> jail, send gift cards," and you're the easiest target in the family.
->
-> This is **Kin**. It's a memory companion on the Vexo band, and the person wearing it never touches a screen.
->
-> Kin listens all day, but it only **remembers what matters**: names, family news, where you put your
-> keys, what you promised to do. Small talk, the cashier and the TV get scored zero and forgotten.
->
-> When you're lost, you **double-tap your wrist** and ask. "Who was that?" "That was Sarah, your
-> daughter. She's moving to Oakland next week."
->
-> It also **protects** you. It warns you during a scam call and locks your spending. It checks on you
-> after a fall. It can see where you left your glasses, and it can reorder your pills, but only inside
-> limits your family sets.
->
-> And your family sees all of it live, on this dashboard.
->
-> Under the hood: a Pipecat voice pipeline with Deepgram, OpenAI and ElevenLabs, Gemini 4 for vision,
-> and Stripe for guarded purchases. Let me show you.
+## 90-second pitch (~230 words)
 
-*(Timing: ~85 s at a calm pace. If you're cut to 60 s, drop the "Under the hood" line and the vision/pills sentence.)*
+> **[Hold up the band.]** *(Presentation)*
+>
+> Seven million Americans live with Alzheimer's, and eleven million family members look after them for free.
+> It doesn't start with forgetting how to cook. It starts with your grandson walking in and you can't find
+> his name. And then a stranger calls: "Grandpa, I'm in jail, buy gift cards, don't tell Mom." *(Approach: the problem)*
+>
+> This is **Kin**: a memory companion on the Vexo band. The person wearing it never touches a screen. *(Design)*
+>
+> Kin listens all day but **only keeps what matters**: names, family news, where you put your keys, what you
+> promised. Small talk and the TV score zero and are forgotten. It knows voices, so it knows *who* said what. *(AI depth)*
+>
+> When you're lost, you double-tap or say "Hey Kin." "Who was that?" "That was Sarah, your daughter.
+> She's moving to Oakland next week."
+>
+> And it's a safety net. It interrupts a scam call mid-sentence, even when it can only hear your half of the
+> call, and locks your spending. It checks on you after a fall. And it buzzes your daughter's phone. *(X factor)*
+>
+> Under the hood there are six cooperating AI agents on real hardware: a Pipecat voice agent with eight
+> tools, a memory brain, a scam detector, Gemini 4 vision, on-device voiceprints and a daily-summary writer.
+> End-to-end tests pass 32 of 32. *(Technical, AI depth)*
+>
+> Caregivers are the buyers. Memory clinics and insurers are the channel. *(Approach: business)*
+>
+> Let me show you.
+
+*(~85 s at a calm pace. Cut to 60 s by dropping the "six agents" sentence and the business line, and save them for Q&A.)*
 
 ---
 
 ## 2-minute live demo run-sheet
 
-**Roles.** **Wearer** = Tamir, band on the wrist. **Sarah** = a friend or volunteer (or ask a judge to
-read the card). **Scam voice** = the same helper reading the scam line from a card, or a phone on speaker
-playing a pre-recorded clip. If you're truly alone: type the other person's lines in the terminal with
-`1 …` / `2 …` (real Deepgram still transcribes your own voice).
+**Solo setup.** Tamir wears the band. The laptop speakers play the other people with `scripts/actors.sh`,
+and Kin talks through **earbuds** (or a second speaker) so the two don't overlap. Hold the band ~30 cm from
+the laptop speakers. A phone subscribed to the ntfy topic sits face-up in front of the judges.
 
-### Before judges arrive (T–5 min)
+### T–10 minutes
 
-1. Close the vexo-open-kit dashboard tab (**one Bluetooth client per band**).
-2. Start fresh so old memories don't leak into the demo:
-   ```bash
-   KIN_DB=demo.db .venv/bin/python -m kin.app
-   ```
-   Double-tap the band first so it can be found. Wait for "Connected to Vexo-HACK-57."
-3. Open http://localhost:8700 full-screen on a second display (or the laptop, angled to the judges).
-   Header should say **band: connected** and **mode: listen**.
-4. Laptop volume up (the band has no speaker), or the earpiece paired. Do a test "Who was that?"
-   **in a different DB** so it doesn't pollute `demo.db`.
-5. Optional vision: add `--webcam 0` (or `1` for an iPhone via Continuity Camera) and point it at the
-   table. Keep your keys or glasses **out of frame** until the vision beat.
-6. Print the cue cards below.
+```bash
+bash scripts/kin.sh                 # leave running (auto-reloads, reconnects without a double-tap)
+bash scripts/clean_slate.sh         # fresh memory (backup kept as kin.db.bak); keeps voiceprints
+```
+1. `.env`: `KIN_VOICE=elevenlabs`. Double-tap the band and wait for "Connected."
+2. Open http://localhost:8700/test and check band, mic and mode are green and the mic meter moves when you talk.
+3. Open http://localhost:8700 (the family page) full-screen, facing the judges. The status should read listening.
+4. /setup: send a **test alert** to make sure the phone buzzes.
+5. Optional vision: restart with `--webcam 0`, glasses **out of frame**.
 
 ### The run
 
-| Time | Who / action | What's said | Dashboard should show |
-|---|---|---|---|
-| 0:00 | Wearer, pointing at the band | "The blue light means it's listening. Watch the dashboard." | Transcript empty, mode **listen** |
-| 0:10 | **Sarah** walks up | "Hi Dad, it's Sarah! I'm moving to Oakland next week for my new job." | Lines appear live as `speaker N` |
-| 0:20 | Wearer | "Oh hi sweetheart. I'm putting my keys in the kitchen drawer. And I'll call the dentist tomorrow." | Lines appear as `wearer` (or `Grandpa Joe`) |
-| 0:30 | Sarah (small talk) | "Nice weather today, huh?" | Line appears |
-| 0:36 | **Pause ~6 s** (chunk ends). Point at the screen. | Wearer: "Kin just decided what's worth keeping." | **Sarah** person card (daughter) + Oakland fact; to-do **Call the dentist · tomorrow**; item **keys → kitchen drawer**; the weather line **greyed out** |
-| 0:45 | **Double-tap** | Kin: "Yes?" · Wearer: "Who was that?" | Mode → **ask**, note "Question: Who was that?" |
-| 0:50 | Kin answers | "That was Sarah, your daughter. She's moving to Oakland next week." | Kin's line in the transcript, mode back to **listen** |
-| 1:00 | **Double-tap** | "Where are my keys?" → "In the kitchen drawer." | |
-| 1:08 | *(Stripe, if OpenAI key works)* **Double-tap** | "Can you reorder my blood pressure pills from Walgreens? They're about thirteen dollars." → "Done. I ordered your … for $13.00." (Say a price: the agent fills in the amount, so don't let it guess.) | **Purchases**: green **allowed**, Stripe `pi_…` id (or `sim_…` without a key) |
-| 1:20 | **Scam voice** (phone on speaker / helper) | "Grandpa, it's your grandson. I'm in jail and I need bail. Buy gift cards and don't tell Mom." | Kin interrupts: "This sounds like a scam… It's okay to hang up." **Alert: scam**, "Purchases locked for 30 minutes." |
-| 1:35 | *(Optional)* **Double-tap** | "Buy a gift card for $200." → "I've paused all purchases for a little while to keep you safe." | **Purchases**: red **blocked**, reason "scam lock active" |
-| 1:45 | *(Optional, vision)* Put the glasses on the table in camera view, wait ~5 s, **double-tap** | "Where are my glasses?" → location from Gemini | **Items**: glasses with a **photo** |
-| 1:50 | Wearer, wrap | "Small talk forgotten, family remembered, scammer stopped, and I never touched a screen." | Whole dashboard |
+| Time | Action | What's heard | Judges see | Criterion |
+|---|---|---|---|---|
+| 0:00 | Point at the band's blue light | "It's listening. Watch my daughter's screen." | Family page, status hero | Design |
+| 0:05 | `bash scripts/actors.sh sarah` | "Hi Dad, it's Sarah! … moving to Oakland next week … I'll call you on Sunday." | Live lines | Technical |
+| 0:20 | Wearer says | "I'm putting my keys in the kitchen drawer. I'll call the dentist tomorrow." | Lines labeled as the wearer | AI (speaker vote) |
+| 0:28 | `bash scripts/actors.sh cashier` *(optional)* | "That'll be four fifty…" | Line appears | |
+| 0:35 | Pause ~6 s, point at the screen | "Kin just decided what's worth keeping." | **Sarah** card + Oakland, to-do **Call the dentist**, **keys → kitchen drawer**, cashier forgotten, **Today so far** updates | AI depth |
+| 0:45 | **Double-tap**, "Who was that?" | "That was Sarah, your daughter. She's moving to Oakland next week." | Status: talking with Kin | Technical |
+| 0:52 | Follow-up, no tap: "When is she calling?" | "On Sunday." (conversation mode) | | AI depth |
+| 0:58 | "Thanks." Then "**Hey Kin**, where are my keys?" | "In the kitchen drawer." | | Design |
+| 1:05 | *(Stripe)* **Double-tap**, "Reorder my blood pressure pills from Walgreens." | "Done. I ordered…" | Purchases: green, `pi_…` (or `sim_…`) | Stripe |
+| 1:15 | `bash scripts/actors.sh scam` | "Grandpa? It's your grandson… two thousand dollars for bail… gift cards… don't tell Mom." | Kin interrupts with a calm warning. **The phone buzzes.** Alert: scam, purchases paused. | **X factor** |
+| 1:35 | **Double-tap**, "Buy a two hundred dollar gift card." | "I've paused all purchases for a little while to keep you safe." | Purchases: red, blocked | Stripe |
+| 1:45 | Point at "Today so far" | Read one line aloud | Summary mentions Sarah and the scam call, calmly | Design |
+| 1:50 | Wrap | "Small talk forgotten, family remembered, scammer stopped, and I never touched a screen." | Whole page | Presentation |
 
-**Fall check (only if there's time, and only onto something soft):** let the band drop onto a cushion →
-"Are you okay? Double-tap your band if you're fine." → double-tap → "Okay, glad you're alright."
-Dashboard: alerts **fall** then **fall_ok**. If free-fall doesn't trigger, press `f` + Enter in the terminal.
+**Order matters:** purchase **before** the scam. The lock lasts 30 minutes and the family page can't clear it,
+so to reset, run `clean_slate.sh` (it restarts Kin).
 
-**Order matters:** do the allowed purchase **before** the scam. After a scam the purchase lock lasts
-30 minutes, and the dashboard can't clear it, so restart the app to reset.
-
-### Cue cards
-
-- **Sarah:** "Hi Dad, it's Sarah! I'm moving to Oakland next week for my new job." … "Nice weather today, huh?"
-- **Scam:** "Grandpa, it's your grandson. I'm in jail and I need bail. Buy gift cards and don't tell Mom."
+**If there's time:** drop the band onto a cushion. Kin says "Are you okay? Double-tap if you're fine," the
+phone buzzes, you double-tap, and Kin says "Glad you're alright." Or say "Where am I? I don't know where I
+am" to show the confusion reassurance and alert.
 
 ### Fallbacks
 
 | Problem | Do this | Say this |
 |---|---|---|
-| Band won't connect / BLE flaky | Ctrl-C, double-tap the band, restart. Still failing → switch to the simulator below. | "Bluetooth with 100 bands in a room. Here's the same pipeline on a simulated band." |
-| Deepgram labels the wearer wrong | Keep going. Answers still work from what was said. Or switch to typed lines: `w …` for wearer, `1 …` for Sarah. | |
-| Double-tap missed | Press `t` + Enter in the terminal (same code path), then ask. Or `a Who was that?` | |
-| **Total fallback** (band or Wi-Fi gone) | `KIN_DB=demo2.db .venv/bin/python -m kin.app --demo --stay` runs the whole scripted story on a pretend band (Sarah, keys, dentist, two questions, scam, fall) and keeps the dashboard up afterwards. | "This is the exact same code, with a pretend band feeding it." |
-| No Wi-Fi at all | Blank the cloud keys so nothing tries the network: `DEEPGRAM_API_KEY= OPENAI_API_KEY= ELEVENLABS_API_KEY= GEMINI_API_KEY= STRIPE_SECRET_KEY= KIN_DB=offline.db .venv/bin/python -m kin.app --demo --stay` (rule-based memory, Mac voice, simulated Stripe). | "Every cloud piece has an offline fallback." |
-| Laptop audio silent | Read Kin's answer off the dashboard transcript (Kin's lines show there). | |
-| Everything is on fire | Play the backup video. | |
+| Band won't connect | Double-tap it. `kin.sh` keeps retrying. After 30 s, switch to the simulator. | "Bluetooth with 100 bands in a room. Same code, simulated band." |
+| Double-tap missed | Say "Hey Kin, …" instead. Or click the test buttons on /test. | |
+| Wrong speaker label | Keep going. Answers come from what was said. | |
+| **Band or Wi-Fi gone** | `KIN_DB=demo.db .venv/bin/python -m kin.app --demo --stay` runs the whole story (Sarah, keys, dentist, two questions, scam, fall) on a pretend band and keeps the family page up. | "This is the exact same pipeline, fed by a pretend band." |
+| No internet at all | `DEEPGRAM_API_KEY= OPENAI_API_KEY= ELEVENLABS_API_KEY= GEMINI_API_KEY= STRIPE_SECRET_KEY= KIN_DB=offline.db .venv/bin/python -m kin.app --demo --stay` (rule-based memory, Mac voice, simulated Stripe, no push) | "Every cloud piece has an offline fallback." |
+| Everything | Play the video. | |
 
 ---
 
 ## Likely judge questions
 
-**1. Privacy and consent: it's recording everyone around the wearer?**
-The band's light is locked solid blue whenever the mic is on, so it's visible. Kin doesn't keep a
-recording. Audio streams to Deepgram for transcription and is never saved; we turn Deepgram's model
-improvement program off (`mip_opt_out`). Small talk and strangers score 0, which means they're visible in the
-recent transcript but never become memories. Strangers and anyone who looks like a scammer are never
-saved as people. Family can delete any fact from the dashboard. It's all a local SQLite file on the
-family's laptop, no Kin cloud. *Honest gap:* the code has a 24-hour transcript-pruning function but it
-isn't scheduled yet, and a consent flow for bystanders (a "pause" gesture, a visible notice) is next.
+**1. Privacy and consent: it hears everyone near the wearer?**
+The band's light is solid blue whenever the mic is on. Kin never stores audio: Deepgram transcribes the
+stream with model-improvement opt-out, and voiceprints are numeric embeddings, not recordings. Small talk and
+strangers score 0: they show in the recent conversation but never become memories, and strangers or likely
+scammers are never saved as people. It's a local SQLite file. Phone alerts are deliberately generic ("Possible
+scam call"), so no names, amounts or transcripts pass through the push service. Family can delete any fact.
+*Honest gaps:* the 24-hour transcript prune isn't scheduled yet, and bystander consent (a "pause" gesture,
+a visible notice) is next.
 
-**2. How accurate is who-is-who? What if it says the wrong name?**
-Two layers. Deepgram diarization separates voices, and Kin labels the loudest-at-the-wrist voice as
-the wearer. A name only gets attached when someone is clearly introduced ("Hi Dad, it's Sarah"). The
-brain is told never to invent a name, and the answering agent is told to hedge ("I think that might be
-Sarah") rather than guess, because a wrong name is worse than "I'm not sure." Limits: speaker labels
-only last the session, and loudness calibration depends on the room. Voiceprints are the next step.
+**2. How accurate is who-is-who?**
+Each sentence's speaker is a vote between three signals: an on-device voiceprint match (it survives
+restarts and days), relative loudness at the wrist (the wearer is consistently loudest), and context (same voice as
+a moment ago, or talking to Kin). A name only gets attached when someone is clearly introduced, or enrolled on
+/setup. The agent is told never to invent a name and to say it isn't sure instead. The vote is robust to one
+noisy signal. The worst case is a new voice in a loud room, which gets "someone" rather than a wrong name.
 
-**3. Why a band, not a phone app?**
-The people who need this most are the ones who can't reliably find, unlock and operate a phone. Taking
-out a phone to ask "who is this?" in front of your grandson is the opposite of dignity. A band is
-always on you, always listening, and the whole interface is one gesture: double-tap. It also gives us
-things a pocketed phone doesn't, like free-fall detection on the body and a mic close to the wearer's voice.
+**3. Why a band and not a phone?**
+The people who need this most can't reliably find, unlock and operate a phone, and pulling one out to ask "who
+is this?" in front of your grandson costs dignity. A band is always on you, the interface is one gesture, and it
+gives us body signals a pocketed phone doesn't: free-fall, and distance from home through Bluetooth signal strength.
 
 **4. Business model?**
-Caregivers pay. The wearer gets the band, and the adult children pay a monthly subscription for the
-dashboard, alerts and spending guardrails, the way they already pay for medical alert pendants.
-Caregivers already spend hours a week on check-in calls, and Americans over 60 lose billions a year to fraud,
-so one blocked gift-card scam pays for years of Kin. Later: home-care agencies and memory-care
-facilities, priced per resident.
+Caregivers pay: a monthly subscription (~$29/month, *estimate*) for the family page, alerts and guardrails,
+like a medical-alert pendant. The channel is B2B2C: memory clinics prescribe it at an MCI diagnosis, and long-term-care
+insurers and Medicare Advantage plans cover it as fall and fraud risk reduction. Then memory-care facilities
+pay per resident. Over-60s reported ~$4.9B in fraud losses in 2024 *(FBI IC3)*, so one blocked scam pays for years.
 
-**5. How is this different from CrossSense, MemPal or Bee?**
-Bee (and the "AI pendant" category) records your whole day for productivity summaries. It's built for
-people with intact memory, and it keeps everything. Kin is the opposite: an aggressive importance filter
-built for memory loss, with one-gesture spoken recall. MemPal and CrossSense target the same population,
-but they lean on screens, smart glasses or a phone app. Kin needs no screen for the wearer. It's also the
-only one of these that **acts**: real-time scam interruption with a purchase lock, fall check-ins, and an
-economic agent with family-set limits. *(Check these comparisons before you say them. Don't
-overclaim about competitors you haven't used.)*
+**5. How is it different from CrossSense, MemPal or Bee?**
+Bee and the AI-pendant category record your day for productivity summaries. They're built for intact memory,
+and they keep everything. Kin forgets on purpose and answers with one gesture. CrossSense and MemPal target
+the same population but lean on smart glasses, a screen or a phone app. Kin needs no screen for the wearer,
+and it **acts**: it interrupts scams on either side of a call, locks spending, checks in after falls and pushes alerts to family.
+*(Check these comparisons before you say them. Don't overclaim about products you haven't used.)*
 
 **6. What's real and what's mocked?**
-Real code end to end: band BLE audio, the Pipecat pipeline, Deepgram, the OpenAI importance filter and
-tools, ElevenLabs, Gemini vision and Stripe PaymentIntents. *(Say only the ones the
-[Devpost hardware table](DEVPOST.md#verified-on-real-hardware) marks ✅.)*
-Honest limits: Stripe is in **test mode** with a test card. "I've told your family" means a dashboard alert,
-not an SMS yet. Voice purchases need the OpenAI agent (no rule-based path), the item list and approved
-merchants are hard-coded for the demo, and speaker names last one session. The `--demo` mode is a
-scripted conversation on a simulated band, used only as a fallback.
+Real: the Vexo band over BLE, Pipecat, Deepgram streaming, the OpenAI brain, agent and summarizer, ElevenLabs,
+Gemini vision, on-device voiceprints, ntfy push and Stripe PaymentIntents. Mocked or limited: Stripe is
+**test mode** with a test card. The merchant list and price table are hard-coded. The "home base" is a laptop.
+`--demo` is a scripted run on a simulated band, used only as a fallback. Tests: e2e 32/32 drives a real Kin on a
+pretend band with real Deepgram and OpenAI.

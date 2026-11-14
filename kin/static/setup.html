@@ -83,7 +83,7 @@
 
   <section class="step" id="stepContacts">
     <h2><span class="num">3</span>Emergency contacts</h2>
-    <p class="hint">They get a phone alert if there's a possible scam call, a fall, or if the band leaves home. Each person installs the free <b>ntfy</b> app and opens their own link.</p>
+    <p class="hint">They get a phone alert if there's a possible scam call, a fall, or if the band leaves home. Each person installs the free <b>ntfy</b> app and opens their own link. Recording their voice too lets Kin tell the wearer when they visit.</p>
     <div class="body">
       <ul id="contactList"></ul>
       <form class="row" id="contactForm">
@@ -118,8 +118,8 @@
 const $ = (id) => document.getElementById(id);
 let wearer = "Grandpa Joe";
 const SCRIPTS = {
-  wearer: (n) => `Hello Kin, this is ${n}. I'm reading this so you can learn my voice. This morning I had coffee by the window, and later I'd like to call my family and take a short walk. I usually keep my keys by the door and my glasses on the kitchen table.`,
-  family: (n, r) => `Hi, this is ${n}${r ? `, ${wearer}'s ${r}` : ""}. I'm recording my voice so Kin can tell ${wearer} who's visiting. I usually come by on weekends, and I love hearing how the week went.`,
+  wearer: (n) => `Hi, this is ${n}. I'm reading this so my wristband can learn my voice. This morning I had coffee by the window, and later I'd like to call my family and take a short walk. I usually keep my keys by the door and my glasses on the kitchen table.`,
+  family: (n, r) => `Hi, this is ${n}${r ? `, ${wearer}'s ${r}` : ""}. I'm recording my voice so the wristband can tell ${wearer} who's visiting. I usually come by on weekends, and I love hearing how the week went.`,
 };
 const FREE = "Just talk normally for 10 seconds: about your morning, your family, or your favourite meal. Anything works.";
 
@@ -175,9 +175,15 @@ async function loadSettings() {
     const test = document.createElement("button"); test.className = "ghost"; test.textContent = "Send test alert";
     test.onclick = async () => { const r = await (await fetch(`/api/contacts/${c.id}/test`, { method: "POST" })).json();
                                  test.textContent = r.ok ? "Sent ✓" : "Couldn't send"; };
+    const voice = document.createElement("button"); voice.className = "ghost"; voice.textContent = "Record their voice";
+    voice.onclick = () => {                      // same recorder as step 4, prefilled with this contact
+      $("famName").value = c.name; $("famRel").value = c.relationship || ""; recs[1].render();
+      $("stepFamily").scrollIntoView({ behavior: "smooth", block: "center" });
+      $("stepFamily").querySelector(".recBtn").focus();
+    };
     const rm = document.createElement("button"); rm.className = "quiet"; rm.textContent = "Remove";
     rm.onclick = async () => { if (confirm(`Stop sending alerts to ${c.name}?`)) { await fetch(`/api/contacts/${c.id}`, { method: "DELETE" }); loadSettings(); } };
-    li.append(who, copy, test, rm); list.append(li);
+    li.append(who, voice, copy, test, rm); list.append(li);
   });
   $("stepContacts").classList.toggle("done", s.contacts.length > 0);
 }

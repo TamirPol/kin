@@ -1,0 +1,1011 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Kin Sketch Pitch</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Kalam:wght@400;700&display=swap" rel="stylesheet">
+<style>
+  :root { --paper:#fbf7ee; --ink:#23262d; --frame:#d8d0bf; }
+  html, body { margin:0; height:100%; overflow:hidden; background:var(--frame); }
+  #stage { position:absolute; left:50%; top:50%; width:1920px; height:1080px; transform-origin:50% 50%;
+           overflow:hidden; background-color:var(--paper); box-shadow:0 10px 40px rgba(60,40,10,.25); }
+  #svg { position:absolute; left:0; top:0; width:1920px; height:1080px; }
+  #vignette { position:absolute; inset:0; pointer-events:none;
+              background:radial-gradient(ellipse at 50% 45%, rgba(0,0,0,0) 58%, rgba(90,65,20,.15) 100%); }
+  #caption { position:absolute; left:50%; bottom:40px; transform:translateX(-50%); max-width:1560px; width:max-content;
+             padding:12px 34px 16px; border-radius:20px; background:rgba(35,38,45,.88); color:#fff;
+             font:400 40px/1.28 Kalam, cursive; text-align:center; opacity:0; transition:opacity .35s; pointer-events:none; }
+  #caption.on { opacity:1; }
+  body.nocaps #caption { display:none; }
+  #loading { position:absolute; inset:0; display:flex; align-items:center; justify-content:center;
+             font:700 64px Caveat, cursive; color:#999; }
+  #ui { position:fixed; left:0; right:0; bottom:0; padding:8px 16px 10px; font:13px/1.3 system-ui, sans-serif;
+        color:#3a3a3a; background:linear-gradient(transparent, rgba(255,255,255,.75) 40%); transition:opacity .3s; }
+  #bar { height:4px; background:rgba(0,0,0,.12); border-radius:2px; margin-bottom:8px; overflow:hidden; }
+  #prog { display:block; height:100%; width:0; background:#2f6fde; }
+  #row { display:flex; gap:10px; align-items:center; flex-wrap:wrap; }
+  #ui button { font:600 13px system-ui, sans-serif; border:1px solid rgba(0,0,0,.2); background:#fff; border-radius:8px;
+               padding:4px 9px; cursor:pointer; color:#333; }
+  #ui button.cur { background:#2f6fde; color:#fff; border-color:#2f6fde; }
+  #tc { font-variant-numeric:tabular-nums; min-width:92px; }
+  .keys { opacity:.75; }
+  body.record #ui { display:none; }
+  body.record, body.record * { cursor:none !important; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <svg id="svg" viewBox="0 0 1920 1080" xmlns="http://www.w3.org/2000/svg">
+    <defs id="defs">
+      <filter id="penShadow" x="-50%" y="-50%" width="200%" height="200%"><feGaussianBlur stdDeviation="7"/></filter>
+    </defs>
+    <path id="meas" d="M0 0" style="visibility:hidden"/>
+    <g id="world"></g>
+    <rect id="flash" x="0" y="0" width="1920" height="1080" fill="#e0413a" opacity="0" pointer-events="none"/>
+    <g id="pen" pointer-events="none"></g>
+  </svg>
+  <div id="vignette"></div>
+  <div id="caption"></div>
+  <div id="loading">sharpening the markers…</div>
+</div>
+<div id="ui">
+  <div id="bar"><i id="prog"></i></div>
+  <div id="row">
+    <button id="play" title="pause / play (p)">pause</button>
+    <span id="dots"></span>
+    <span id="tc">0:00</span>
+    <span class="keys">← → or space: scene · 1–9, 0: jump · p: pause · c: captions · r: record mode · f: fullscreen · Home: restart</span>
+  </div>
+</div>
+
+<script>
+"use strict";
+/* ============================================================
+   Kin: hand-drawn whiteboard pitch. Everything is computed from
+   (scene, time), so seeking, stepping and pausing are exact.
+   ============================================================ */
+const W = 1920, H = 1080, NS = 'http://www.w3.org/2000/svg';
+const INK = '#23262d', BLUE = '#2f6fde', RED = '#e0413a', GREEN = '#2f9e5b', ORANGE = '#f08a24',
+      YEL = '#ffd23f', GREY = '#8d8d8d', SKIN = '#f7d9bb', LBLUE = '#e3edff', BROWN = '#8a5a3c',
+      SAGE = '#b3cdae', CORAL = '#f4aaa2', CREAM = '#fffdf6', DARK = '#3b4150';
+
+const $ = (tag, attrs = {}, parent) => {
+  const e = document.createElementNS(NS, tag);
+  for (const k in attrs) e.setAttribute(k, attrs[k]);
+  if (parent) parent.appendChild(e);
+  return e;
+};
+let seed = 20261114;
+const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+const clamp = (v, a = 0, b = 1) => Math.max(a, Math.min(b, v));
+const lerp = (a, b, t) => a + (b - a) * t;
+const ease = t => t < .5 ? 2 * t * t : 1 - Math.pow(-2 * t + 2, 2) / 2;
+const easeOut = t => 1 - Math.pow(1 - t, 3);
+const backOut = t => { const c1 = 1.9, c3 = c1 + 1; return 1 + c3 * Math.pow(t - 1, 3) + c1 * Math.pow(t - 1, 2); };
+let uid = 0;
+const DRAW = .66;  // global drawing speed: lower = faster pen
+
+const svg = document.getElementById('svg'), defs = document.getElementById('defs'),
+      world = document.getElementById('world'), meas = document.getElementById('meas'),
+      flash = document.getElementById('flash'), penG = document.getElementById('pen'),
+      stage = document.getElementById('stage'), capEl = document.getElementById('caption');
+
+/* ---------- shape helpers (return path strings) ---------- */
+const R = (x, y, w, h, r = 14) =>
+  `M${x + r} ${y}H${x + w - r}Q${x + w} ${y} ${x + w} ${y + r}V${y + h - r}Q${x + w} ${y + h} ${x + w - r} ${y + h}` +
+  `H${x + r}Q${x} ${y + h} ${x} ${y + h - r}V${y + r}Q${x} ${y} ${x + r} ${y}Z`;
+const E = (cx, cy, rx, ry = rx) =>
+  `M${cx - rx} ${cy}A${rx} ${ry} 0 1 1 ${cx + rx} ${cy}A${rx} ${ry} 0 1 1 ${cx - rx} ${cy}Z`;
+const L = (...p) => { let d = ''; for (let i = 0; i < p.length; i += 2) d += (i ? 'L' : 'M') + p[i] + ' ' + p[i + 1]; return d; };
+const HEART = (cx, cy, r) =>
+  `M${cx} ${cy + r * .9}C${cx - r * 1.7} ${cy - r * .1} ${cx - r * .8} ${cy - r * 1.4} ${cx} ${cy - r * .45}` +
+  `C${cx + r * .8} ${cy - r * 1.4} ${cx + r * 1.7} ${cy - r * .1} ${cx} ${cy + r * .9}Z`;
+
+function bubble(x, y, w, h, tx, ty, r = 26) {
+  const bw = 30;
+  if (ty > y + h) {                       // tail from the bottom edge
+    const bx = clamp(tx, x + r + bw, x + w - r - bw);
+    return `M${x + r} ${y}H${x + w - r}Q${x + w} ${y} ${x + w} ${y + r}V${y + h - r}Q${x + w} ${y + h} ${x + w - r} ${y + h}` +
+      `H${bx + bw / 2}L${tx} ${ty}L${bx - bw / 2} ${y + h}H${x + r}Q${x} ${y + h} ${x} ${y + h - r}V${y + r}Q${x} ${y} ${x + r} ${y}Z`;
+  }
+  if (tx < x) {                           // tail from the left edge
+    const by = clamp(ty, y + r + bw / 2, y + h - r - bw / 2);
+    return `M${x + r} ${y}H${x + w - r}Q${x + w} ${y} ${x + w} ${y + r}V${y + h - r}Q${x + w} ${y + h} ${x + w - r} ${y + h}` +
+      `H${x + r}Q${x} ${y + h} ${x} ${y + h - r}V${by + bw / 2}L${tx} ${ty}L${x} ${by - bw / 2}V${y + r}Q${x} ${y} ${x + r} ${y}Z`;
+  }
+  const by = clamp(ty, y + r + bw / 2, y + h - r - bw / 2);   // tail from the right edge
+  return `M${x + r} ${y}H${x + w - r}Q${x + w} ${y} ${x + w} ${y + r}V${by - bw / 2}L${tx} ${ty}L${x + w} ${by + bw / 2}` +
+    `V${y + h - r}Q${x + w} ${y + h} ${x + w - r} ${y + h}H${x + r}Q${x} ${y + h} ${x} ${y + h - r}V${y + r}Q${x} ${y} ${x + r} ${y}Z`;
+}
+function cloud(cx, cy, w, h, n = 11) {
+  const pts = [];
+  for (let i = 0; i < n; i++) { const a = Math.PI + i / n * Math.PI * 2; pts.push([cx + Math.cos(a) * w / 2, cy + Math.sin(a) * h / 2]); }
+  let d = `M${pts[0][0].toFixed(1)} ${pts[0][1].toFixed(1)}`;
+  for (let i = 0; i < n; i++) {
+    const a = pts[i], b = pts[(i + 1) % n], br = Math.hypot(b[0] - a[0], b[1] - a[1]) * .62;
+    d += `A${br.toFixed(1)} ${br.toFixed(1)} 0 0 1 ${b[0].toFixed(1)} ${b[1].toFixed(1)}`;
+  }
+  return d + 'Z';
+}
+
+/* ---------- sketchify: resample a path and add a gentle hand wobble ---------- */
+function sketchOne(d, amp) {
+  meas.setAttribute('d', d);
+  const len = meas.getTotalLength();
+  if (len < 3) return d;
+  const closed = /Z\s*$/i.test(d);
+  const step = 6, n = Math.max(3, Math.ceil(len / step));
+  const f1 = 1 / (35 + rnd() * 45), f2 = 1 / (90 + rnd() * 90), p1 = rnd() * 6.283, p2 = rnd() * 6.283;
+  const extra = closed ? Math.min(22, len * .07) : 0;
+  const total = n + Math.ceil(extra / (len / n));
+  const pts = [];
+  for (let i = 0; i <= total; i++) {
+    const s = i * len / n, sm = s > len ? s - len : s;
+    const a = meas.getPointAtLength(sm), b = meas.getPointAtLength(Math.min(len, sm + 1)), c = meas.getPointAtLength(Math.max(0, sm - 1));
+    let tx = b.x - c.x, ty = b.y - c.y; const tl = Math.hypot(tx, ty) || 1; tx /= tl; ty /= tl;
+    let o = amp * (Math.sin(s * f1 * 6.283 + p1) * .65 + Math.sin(s * f2 * 6.283 + p2) * .35);
+    if (s > len) o += (s - len) * .28;              // closed shapes overshoot their start, like a real marker
+    if (!closed) o *= Math.min(1, s / 25, (len - s) / 25 + .25);
+    pts.push((a.x - ty * o).toFixed(1) + ' ' + (a.y + tx * o).toFixed(1));
+  }
+  return 'M' + pts.join('L');
+}
+const sketch = (d, amp = 1.6) => d.split(/(?=M)/).filter(x => x.trim()).map(p => sketchOne(p, amp)).join('');
+
+/* ---------- the builder: scene authors call these in drawing order ---------- */
+class Builder {
+  constructor(root) {
+    this.t = 0; this.items = []; this.caps = []; this.loops = []; this.instant = false;
+    this.back = $('g', {}, root); this.main = $('g', {}, root);
+  }
+  wait(d) { this.t += d; return this; }
+  at(t) { this.t = t; return this; }
+  cap(text) { this.caps.push({ t: this.t, text }); }
+  add(it, o = {}) {
+    it.t0 = o.at != null ? o.at : this.t;
+    it.last = -1;
+    this.items.push(it);
+    if (!o.par) this.t = it.t0 + it.dur;
+    it.update(0);
+    return it;
+  }
+  path(d, o = {}) {
+    const w = o.w ?? 5, color = o.color ?? INK;
+    const sd = o.raw ? d : sketch(d, o.amp ?? 1.6);
+    const el = $('path', { d: sd, fill: 'none', stroke: color, 'stroke-width': w,
+                           'stroke-linecap': o.cap ?? 'round', 'stroke-linejoin': 'round' }, o.back ? this.back : this.main);
+    if (o.opacity != null) el.setAttribute('stroke-opacity', o.opacity);
+    let fillEl = null;
+    if (o.fill) fillEl = $('path', { d: o.fillD ?? (o.raw ? d : sketch(d, .8)), fill: o.fill, opacity: 0 }, this.back);
+    const len = el.getTotalLength() + 2;
+    let target = el, maskEl = null, maskId = null;
+    if (o.dash) {
+      el.setAttribute('stroke-dasharray', o.dash);
+      maskId = 'm' + (uid++);
+      const m = $('mask', { id: maskId, maskUnits: 'userSpaceOnUse', x: -6000, y: -6000, width: 16000, height: 16000 }, defs);
+      maskEl = target = $('path', { d: sd, fill: 'none', stroke: '#fff', 'stroke-width': w + 8, 'stroke-linecap': 'round' }, m);
+    }
+    target.setAttribute('stroke-dasharray', `${len} ${len}`);
+    const inst = this.instant;
+    const dur = inst ? .01 : (o.dur ?? clamp(len / (o.speed ?? 1500), o.min ?? .14, 1.5)) * DRAW;
+    const it = {
+      el, fillEl, dur, color, pen: !inst && o.pen !== false, penEl: el,
+      update: p => {
+        target.style.strokeDashoffset = len * (1 - p);
+        el.style.visibility = p > 0 ? 'visible' : 'hidden';
+        if (maskEl) { if (p >= 1) el.removeAttribute('mask'); else el.setAttribute('mask', `url(#${maskId})`); }
+      },
+      point: p => el.getPointAtLength(clamp(p) * (len - 2)),
+    };
+    this.add(it, o);
+    if (fillEl) {
+      const fo = o.fillOpacity ?? 1;
+      this.add({ dur: inst ? .01 : .45, pen: false, update: p => fillEl.setAttribute('opacity', easeOut(p) * fo) }, { par: true });
+    }
+    return it;
+  }
+  fillOnly(d, color, o = {}) {      // a soft wash of colour, no pen
+    const el = $('path', { d, fill: color, opacity: 0 }, o.front ? this.main : this.back);
+    const fo = o.opacity ?? 1;
+    return this.add({ el, dur: o.dur ?? .35, pen: false, update: p => el.setAttribute('opacity', easeOut(p) * fo) }, { par: o.par ?? true, at: o.at });
+  }
+  text(str, x, y, o = {}) {
+    const hand = o.font === 'hand';
+    const size = o.size ?? (hand ? 64 : 42);
+    const el = $('text', { x, y, 'font-family': hand ? 'Caveat, cursive' : 'Kalam, cursive', 'font-size': size,
+                           'font-weight': o.weight ?? (hand ? 700 : 400), fill: o.color ?? INK,
+                           'text-anchor': o.anchor ?? 'start' }, o.back ? this.back : this.main);
+    if (o.opacity != null) el.setAttribute('opacity', o.opacity);
+    el.textContent = str;
+    const bb = el.getBBox();
+    const id = 'c' + (uid++);
+    const cp = $('clipPath', { id, clipPathUnits: 'userSpaceOnUse' }, defs);
+    const r = $('rect', { x: bb.x - 14, y: bb.y - 40, height: bb.height + 80, width: 0 }, cp);
+    const inst = this.instant;
+    const dur = inst ? .01 : (o.dur ?? clamp(str.length * (o.cps ?? .033), .3, 1.7)) * DRAW;
+    const it = {
+      el, bb, dur, color: o.color ?? INK, pen: !inst && o.pen !== false, penEl: el,
+      update: p => {
+        if (p >= 1) el.removeAttribute('clip-path');
+        else { el.setAttribute('clip-path', `url(#${id})`); r.setAttribute('width', (bb.width + 28) * p); }
+        el.style.visibility = p > 0 ? 'visible' : 'hidden';
+      },
+      point: p => ({ x: bb.x + bb.width * clamp(p), y: bb.y + bb.height * (.66 + .16 * Math.sin(p * bb.width / 8)) }),
+    };
+    return this.add(it, o);
+  }
+  hl(x, y, w, h, o = {}) {        // highlighter swipe, sits behind the ink
+    return this.path(`M${x} ${y + h / 2 + 3}L${x + w} ${y + h / 2 - 3}`,
+      { w: h, color: o.color ?? YEL, opacity: o.opacity ?? .55, cap: 'butt', back: true, raw: true, speed: 2600, ...o });
+  }
+  arrow(x1, y1, x2, y2, o = {}) {
+    const bend = o.bend ?? 0, mx = (x1 + x2) / 2, my = (y1 + y2) / 2;
+    const dx = x2 - x1, dy = y2 - y1, dl = Math.hypot(dx, dy) || 1;
+    const cx = mx - dy / dl * bend, cy = my + dx / dl * bend;
+    const shaft = this.path(`M${x1} ${y1}Q${cx} ${cy} ${x2} ${y2}`, { w: 5, ...o });
+    const ax = x2 - cx, ay = y2 - cy, al = Math.hypot(ax, ay) || 1, ux = ax / al, uy = ay / al, hl = o.head ?? 24, sp = .48;
+    const p1 = [x2 - hl * (ux * Math.cos(sp) - uy * Math.sin(sp)), y2 - hl * (uy * Math.cos(sp) + ux * Math.sin(sp))];
+    const p2 = [x2 - hl * (ux * Math.cos(-sp) - uy * Math.sin(-sp)), y2 - hl * (uy * Math.cos(-sp) + ux * Math.sin(-sp))];
+    this.path(L(p1[0], p1[1], x2, y2, p2[0], p2[1]), { w: 5, amp: .6, min: .1, ...o, dash: null });
+    return shaft;
+  }
+  fx(update, o = {}) { return this.add({ dur: o.dur ?? .5, pen: false, update }, o); }
+  loop(fn, o = {}) { this.loops.push({ t0: o.at ?? this.t, fn }); fn(-1); }
+  fade(els, to, o = {}) {
+    const list = [].concat(els);
+    return this.fx(p => list.forEach(e => e.style.opacity = lerp(1, to, ease(p))), { dur: .6, ...o });
+  }
+  pop(g, cx, cy, o = {}) {
+    return this.fx(p => {
+      g.setAttribute('transform', `translate(${cx} ${cy}) scale(${Math.max(.001, backOut(p))}) translate(${-cx} ${-cy})`);
+      g.style.opacity = p > 0 ? 1 : 0;
+    }, { dur: .45, ...o });
+  }
+  group(attrs, fn) {
+    const g = $('g', attrs, this.main), ob = this.back, om = this.main;
+    this.back = $('g', {}, g); this.main = $('g', {}, g);
+    fn(g);
+    this.back = ob; this.main = om;
+    return g;
+  }
+  instantly(fn) { const was = this.instant; this.instant = true; fn(); this.instant = was; }
+}
+
+/* ---------- reusable drawings ---------- */
+function grandpa(s, o = {}) {           // head centre at (0,0), about 260 x 380
+  const q = { speed: 2000, min: .07 };
+  s.path(E(0, 0, 62, 70), { ...q, w: 5, fill: SKIN });
+  s.path('M-61 -10Q-82 -12 -78 10Q-75 28 -58 22', q);
+  s.path('M61 -10Q82 -12 78 10Q75 28 58 22', q);
+  s.path('M-58 -24Q-74 -42 -60 -56', { ...q, color: GREY, w: 6 });
+  s.path('M-48 -40Q-60 -62 -40 -66', { ...q, color: GREY, w: 6 });
+  s.path('M58 -24Q74 -42 60 -56', { ...q, color: GREY, w: 6 });
+  s.path('M48 -40Q60 -62 40 -66', { ...q, color: GREY, w: 6 });
+  s.path('M-22 -52Q-6 -60 10 -56', { ...q, color: '#fff', w: 6, opacity: .9 });
+  s.path('M-44 -30Q-28 -40 -11 -32', { ...q, color: GREY, w: 7 });
+  s.path('M11 -32Q28 -40 44 -30', { ...q, color: GREY, w: 7 });
+  s.path(E(-25, -4, 18, 16), { ...q, w: 4 });
+  s.path(E(25, -4, 18, 16), { ...q, w: 4 });
+  s.path('M-7 -7Q0 -13 7 -7', { ...q, w: 4 });
+  s.path(E(-25, -2, 4.5), { ...q, w: 3, fill: INK, pen: false, dur: .05, raw: true });
+  s.path(E(25, -2, 4.5), { ...q, w: 3, fill: INK, pen: false, dur: .05, raw: true });
+  s.path('M0 0Q-9 18 3 22', { ...q, w: 4 });
+  s.path('M-36 36Q-18 24 0 33Q18 24 36 36Q18 46 0 39Q-18 46 -36 36Z', { ...q, w: 4, fill: '#dedede' });
+  if (o.mouth === 'smile') s.path('M-18 52Q0 64 18 52', q);
+  if (o.mouth === 'flat') s.path('M-15 55Q0 53 15 55', q);
+  if (o.mouth === 'worried') s.path('M-16 58Q0 48 16 58', q);
+  s.path('M-20 66L-22 88', q); s.path('M20 66L22 88', q);
+  s.path('M-140 310Q-138 132 -32 92L0 132L32 92Q138 132 140 310', { ...q, w: 5, fill: SAGE,
+         fillD: 'M-140 310Q-138 132 -32 92L0 132L32 92Q138 132 140 310Z' });
+  s.path('M0 132L0 310', q);
+  s.path('M-96 170Q-92 240 -88 310', q); s.path('M96 170Q92 240 88 310', q);
+  [175, 225, 275].forEach(y => s.path(E(14, y, 5), { ...q, w: 3, fill: INK, pen: false, dur: .05, raw: true }));
+}
+function sarah(s, o = {}) {             // head centre at (0,0)
+  const q = { speed: 2000, min: .07 };
+  s.path('M-64 30Q-80 -84 0 -84Q80 -84 64 30Q68 96 46 106L-46 106Q-68 96 -64 30Z', { ...q, w: 5, fill: BROWN, fillOpacity: .85 });
+  s.path(E(0, 2, 52, 62), { ...q, fill: SKIN });
+  s.path('M-50 -18Q-8 -14 26 -60', { ...q, color: BROWN, w: 6 });
+  s.path(E(-19, 4, 5), { ...q, w: 3, fill: INK, pen: false, dur: .05, raw: true });
+  s.path(E(19, 4, 5), { ...q, w: 3, fill: INK, pen: false, dur: .05, raw: true });
+  s.path('M-16 34Q0 48 16 34', q);
+  s.path(E(-32, 24, 8, 5), { raw: true, w: 0, fill: CORAL, pen: false, dur: .05, fillOpacity: .7 });
+  s.path(E(32, 24, 8, 5), { raw: true, w: 0, fill: CORAL, pen: false, dur: .05, fillOpacity: .7 });
+  s.path('M-120 290Q-112 140 -24 110Q0 126 24 110Q112 140 120 290', { ...q, fill: CORAL,
+         fillD: 'M-120 290Q-112 140 -24 110Q0 126 24 110Q112 140 120 290Z' });
+}
+function bandIcon(s, cx, cy, k = 1) {
+  const q = { speed: 1800, min: .08 };
+  s.path(R(cx - 50 * k, cy - 95 * k, 100 * k, 190 * k, 26 * k), { ...q, fill: DARK });
+  s.path(R(cx - 38 * k, cy - 52 * k, 76 * k, 104 * k, 18 * k), { ...q, fill: '#1b1e25' });
+  s.path(E(cx, cy, 10 * k), { raw: true, w: 3, color: BLUE, fill: BLUE, pen: false, dur: .1 });
+}
+function glow(s, cx, cy, o = {}) {      // pulsing rings around the band light
+  const rings = [0, 1, 2].map(() => $('circle', { cx, cy, r: 10, fill: 'none', stroke: o.color ?? BLUE, 'stroke-width': 4, opacity: 0 }, s.main));
+  s.loop(e => rings.forEach((c, i) => {
+    if (e < 0) { c.setAttribute('opacity', 0); return; }
+    const ph = (e * .7 + i / 3) % 1;
+    c.setAttribute('r', (o.r0 ?? 14) + ph * (o.spread ?? 60));
+    c.setAttribute('opacity', ((1 - ph) * .7 * Math.min(1, e * 2)).toFixed(3));
+  }), o);
+}
+function keyIcon(s, x, y, k = 1, color = INK) {
+  const q = { speed: 1600, min: .08, color, w: 5 };
+  s.path(E(x, y, 18 * k), q);
+  s.path(L(x + 18 * k, y, x + 78 * k, y), q);
+  s.path(L(x + 60 * k, y, x + 60 * k, y + 16 * k), q);
+  s.path(L(x + 74 * k, y, x + 74 * k, y + 12 * k), q);
+}
+function avatar(s, cx, cy, color = INK) {
+  s.path(E(cx, cy - 12, 16), { color, min: .1 });
+  s.path(`M${cx - 28} ${cy + 30}Q${cx} ${cy - 4} ${cx + 28} ${cy + 30}`, { color, min: .1 });
+}
+function check(s, x, y, color = GREEN) {
+  s.path(`M${x} ${y}L${x + 12} ${y + 14}L${x + 34} ${y - 16}`, { color, w: 7, min: .15 });
+}
+function lockIcon(s, x, y, color = ORANGE) {
+  s.path(`M${x + 12} ${y}Q${x + 12} ${y - 34} ${x + 30} ${y - 34}Q${x + 48} ${y - 34} ${x + 48} ${y}`, { w: 6, min: .12 });
+  s.path(R(x, y, 60, 46, 8), { fill: color, min: .14 });
+  s.path(E(x + 30, y + 22, 5), { raw: true, w: 2, fill: INK, pen: false, dur: .05 });
+}
+function shieldIcon(s, cx, cy, k = 1, color = ORANGE) {
+  s.path(`M${cx} ${cy - 50 * k}L${cx + 42 * k} ${cy - 34 * k}Q${cx + 44 * k} ${cy + 20 * k} ${cx} ${cy + 52 * k}Q${cx - 44 * k} ${cy + 20 * k} ${cx - 42 * k} ${cy - 34 * k}Z`,
+         { fill: color, fillOpacity: .8, min: .15 });
+}
+function phone(s, x, y, w, h, o = {}) {
+  s.path(R(x, y, w, h, 34), { fill: CREAM, w: 6 });
+  s.path(R(x + 16, y + 52, w - 32, h - 104, 14), { fill: o.screen ?? '#e9eef7', w: 4 });
+  s.path(L(x + w / 2 - 26, y + 27, x + w / 2 + 26, y + 27), { w: 5 });
+  s.path(L(x + w / 2 - 30, y + h - 26, x + w / 2 + 30, y + h - 26), { w: 5 });
+}
+function box(s, x, y, w, h, title, sub, color = INK, fill = CREAM) {
+  s.path(R(x, y, w, h, 20), { color, w: 5, fill });
+  s.text(title, x + w / 2, y + h / 2 + (sub ? -4 : 14), { anchor: 'middle', size: 40, weight: 700, cps: .028 });
+  if (sub) s.text(sub, x + w / 2, y + h / 2 + 40, { anchor: 'middle', size: 28, color: '#55585f', cps: .022 });
+}
+const shake = { v: 0 };
+function textWidth(str, size, family = 'Kalam, cursive') {
+  const t = $('text', { 'font-family': family, 'font-size': size, style: 'visibility:hidden' }, svg);
+  t.textContent = str; const w = t.getComputedTextLength(); t.remove(); return w;
+}
+
+/* ============================================================
+   THE STORY. Scene centres sit on one big sheet of paper; the
+   camera pans between them. Times inside build() are seconds
+   after the camera arrives.
+   ============================================================ */
+const SCENES = [
+/* 1 ---------------------------------------------------------- */
+{ name: 'The problem', x: 0, y: 0, pan: .7, build: s => {
+  s.cap('Meet Grandpa Joe. He has early memory loss.');
+  s.text('This is Grandpa Joe.', 110, 165, { font: 'hand', size: 112 });
+  s.path('M112 196Q420 182 760 196', { w: 7, color: ORANGE, speed: 2600 });
+  s.group({ transform: 'translate(470 480) scale(1.12)' }, () => grandpa(s, { mouth: 'worried' }));
+  s.text('?', 360, 372, { font: 'hand', size: 96, color: ORANGE, dur: .25 });
+  s.text('?', 560, 352, { font: 'hand', size: 84, color: ORANGE, dur: .25 });
+  s.cap('He forgets who visited, where things are, and can\'t spot a scam call.');
+  s.path(E(598, 404, 9), { min: .08 }); s.path(E(640, 370, 14), { min: .1 });
+  s.path(cloud(930, 300, 440, 170), { fill: CREAM, speed: 2600 });
+  s.text('Who was that?', 930, 318, { anchor: 'middle', size: 50 });
+  s.path(E(640, 530, 10), { min: .08 }); s.path(E(690, 552, 14), { min: .1 });
+  s.path(cloud(1010, 565, 560, 170), { fill: CREAM, speed: 2600 });
+  keyIcon(s, 785, 568, .9);
+  s.text('Where are my keys?', 880, 582, { size: 44 });
+  s.path(E(665, 700, 10), { min: .08 }); s.path(E(705, 750, 14), { min: .1 });
+  s.path(cloud(960, 830, 500, 170), { fill: CREAM, speed: 2600 });
+  s.text('Is this call… real?', 960, 848, { anchor: 'middle', size: 46, color: RED });
+  s.path('M1345 235Q1332 560 1348 905', { color: '#c9c2b2', w: 4, speed: 2600 });
+  s.cap('7M+ Americans live with Alzheimer\'s. 11M+ family members care for them.');
+  const stat = (y, num, l1, l2, col) => {
+    s.text(num, 1400, y, { font: 'hand', size: 124, color: col, dur: .4 });
+    s.hl(1392, y - 78, 250, 70, { opacity: .45 });
+    s.text(l1, 1404, y + 52, { size: 36, cps: .022 });
+    s.text(l2, 1404, y + 96, { size: 36, cps: .022 });
+  };
+  stat(320, '7M+', 'Americans living', 'with Alzheimer\'s', RED);
+  stat(560, '11M+', 'family members caring', 'for them, unpaid', ORANGE);
+  s.cap('And older adults lose billions of dollars a year to scams.');
+  stat(800, '$3B+', 'lost by older adults', 'to fraud every year', RED);
+  s.text('approximate · Alzheimer\'s Association, FBI IC3', 1404, 952, { size: 24, color: GREY, cps: .012 });
+}},
+/* 2 ---------------------------------------------------------- */
+{ name: 'Meet Kin', x: 2100, y: 0, build: s => {
+  s.cap('Meet Kin: a memory companion on the Vexo wristband.');
+  s.text('Meet Kin', 960, 200, { font: 'hand', size: 170, color: BLUE, anchor: 'middle', dur: .8 });
+  s.path('M700 232Q960 214 1230 232', { w: 7, color: ORANGE, speed: 2600 });
+  s.text('a memory companion on the Vexo band', 960, 300, { anchor: 'middle', size: 46, cps: .022 });
+  s.fillOnly('M-40 520Q500 498 1120 536L1120 690Q500 712 -40 720Z', SKIN, { par: false, dur: .3 });
+  s.path('M-40 520Q500 498 1120 536', { speed: 2600 });
+  s.path('M-40 720Q500 712 1120 690', { speed: 2600 });
+  s.path('M1120 536Q1190 470 1290 486Q1392 500 1402 560Q1410 642 1330 690Q1240 718 1120 690',
+         { speed: 2400, fill: SKIN, fillD: 'M1110 536Q1190 470 1290 486Q1392 500 1402 560Q1410 642 1330 690Q1240 718 1110 690Z' });
+  s.path('M1300 524Q1352 530 1374 556', { min: .1 });
+  s.path('M1306 572Q1360 578 1384 604', { min: .1 });
+  s.path('M1294 618Q1344 626 1364 650', { min: .1 });
+  s.path('M-40 494L120 490Q148 610 126 742L-40 746', { fill: SAGE, fillD: 'M-40 494L120 490Q148 610 126 742L-40 746Z', speed: 2400 });
+  s.path(R(760, 488, 120, 244, 30), { fill: DARK, speed: 2000 });
+  s.path(R(774, 552, 92, 116, 20), { fill: '#1b1e25', speed: 2000 });
+  s.path(E(820, 610, 12), { raw: true, w: 3, color: BLUE, fill: BLUE, pen: false, dur: .1 });
+  glow(s, 820, 610, { spread: 70 });
+  s.cap('It listens all day. To ask something, he just double-taps his wrist.');
+  s.text('listens all day', 250, 400, { size: 48 });
+  s.arrow(520, 418, 748, 520, { bend: -40 });
+  [70, 100, 130].forEach(r => s.path(`M${820 + r * Math.cos(-1.25)} ${610 + r * Math.sin(-1.25)}A${r} ${r} 0 0 1 ${820 + r * Math.cos(-.45)} ${610 + r * Math.sin(-.45)}`,
+                                     { color: BLUE, w: 5, min: .12 }));
+  s.text('double-tap to ask', 300, 880, { size: 48 });
+  s.arrow(640, 846, 772, 748, { bend: 30 });
+  s.path('M902 770L924 800', { color: ORANGE, w: 6, min: .08 });
+  s.path('M932 758L962 778', { color: ORANGE, w: 6, min: .08 });
+  s.cap('No screen, no app, nothing new to learn.');
+  s.text('no screen. nothing to learn.', 1130, 880, { size: 48 });
+  s.path('M1130 900Q1400 890 1700 902', { color: BLUE, w: 6, speed: 2600 });
+}},
+/* 3 ---------------------------------------------------------- */
+{ name: 'It remembers', x: 4200, y: 0, build: s => {
+  s.cap('Kin hears the whole conversation…');
+  s.text('It remembers what matters.', 100, 150, { font: 'hand', size: 104 });
+  const sMini = (cx, cy) => { s.path(`M${cx - 34} ${cy + 14}Q${cx - 40} ${cy - 40} ${cx} ${cy - 38}Q${cx + 40} ${cy - 40} ${cx + 34} ${cy + 14}`, { color: BROWN, w: 8, min: .1 });
+                              s.path(E(cx, cy, 26), { fill: SKIN, min: .12 }); };
+  const jMini = (cx, cy) => { s.path(E(cx, cy, 28), { fill: SKIN, min: .12 });
+                              s.path(E(cx - 11, cy - 2, 8), { w: 3, min: .06 }); s.path(E(cx + 11, cy - 2, 8), { w: 3, min: .06 }); };
+  const B = [];
+  sMini(78, 300);
+  B.push(s.path(bubble(152, 230, 630, 140, 110, 300), { fill: CREAM, speed: 2800 }));
+  s.text('Hi Dad, it\'s Sarah! I\'m moving', 180, 288, { size: 37, cps: .024 });
+  s.text('to Oakland next week.', 180, 340, { size: 37, cps: .024 });
+  sMini(78, 450);
+  const b2 = s.path(bubble(152, 400, 430, 100, 110, 450), { fill: CREAM, speed: 2800 });
+  const t2 = s.text('Nice weather today, huh?', 180, 463, { size: 37, cps: .024 });
+  jMini(78, 600);
+  s.path(bubble(152, 530, 630, 140, 110, 600), { fill: CREAM, speed: 2800 });
+  s.text('I\'m putting my keys in the', 180, 588, { size: 37, cps: .024 });
+  s.text('kitchen drawer.', 180, 640, { size: 37, cps: .024 });
+  jMini(78, 750);
+  s.path(bubble(152, 700, 630, 100, 110, 750), { fill: CREAM, speed: 2800 });
+  s.text('I\'ll call the dentist tomorrow.', 180, 763, { size: 37, cps: .024 });
+  s.cap('…and scores every line from 0 to 3 for how much it matters.');
+  s.path('M850 235Q884 235 884 300L884 482Q884 515 908 518Q884 521 884 556L884 735Q884 800 850 800', { w: 5, speed: 2800 });
+  s.path('M940 330L1180 330L1100 540L1100 664L1020 664L1020 540Z', { fill: '#fff1cf', speed: 2400 });
+  s.text('what', 1060, 392, { font: 'hand', size: 44, anchor: 'middle' });
+  s.text('matters?', 1060, 436, { font: 'hand', size: 44, anchor: 'middle' });
+  s.text('0 – 3', 1060, 494, { font: 'hand', size: 40, anchor: 'middle', color: ORANGE });
+  const badge = (cx, cy, n, col) => {
+    const g = s.group({}, () => s.instantly(() => {
+      s.path(E(cx, cy, 28), { raw: true, w: 4, color: col, fill: '#fff' });
+      s.text(n, cx, cy + 16, { font: 'hand', size: 50, anchor: 'middle', color: col });
+    }));
+    s.pop(g, cx, cy, { dur: .35 });
+  };
+  badge(770, 238, '3', GREEN); badge(570, 408, '0', GREY); badge(770, 538, '3', GREEN); badge(770, 708, '2', GREEN);
+  s.cap('Small talk scores zero and fades. What matters becomes a memory.');
+  s.fade([b2.el, b2.fillEl, t2.el], .2, { dur: .7, par: true });
+  s.path('M172 452L568 446', { color: GREY, w: 5, speed: 1400 });
+  s.text('forgotten', 606, 466, { font: 'hand', size: 46, color: GREY });
+  s.arrow(1112, 600, 1238, 470, { bend: -40 });
+  s.text('memory cards', 1262, 214, { font: 'hand', size: 44, color: GREY });
+  s.group({ transform: 'rotate(-2 1540 330)' }, () => {
+    s.path(R(1250, 248, 590, 165, 14), { fill: '#fff', speed: 3000 });
+    s.fillOnly(R(1500, 232, 96, 32, 3), '#ffe58a', { opacity: .85, front: true });
+    avatar(s, 1310, 330, BLUE);
+    s.text('Sarah · daughter', 1368, 314, { size: 40, weight: 700 });
+    s.text('moving to Oakland next week', 1368, 370, { size: 32, cps: .022 });
+  });
+  s.group({ transform: 'rotate(1.5 1540 540)' }, () => {
+    s.path(R(1262, 470, 570, 140, 14), { fill: '#fff', speed: 3000 });
+    s.fillOnly(R(1490, 456, 96, 32, 3), '#ffe58a', { opacity: .85, front: true });
+    keyIcon(s, 1306, 540, .9, BLUE);
+    s.text('keys → kitchen drawer', 1408, 556, { size: 38 });
+  });
+  s.group({ transform: 'rotate(-1 1540 730)' }, () => {
+    s.path(R(1250, 664, 590, 150, 14), { fill: '#fff', speed: 3000 });
+    s.fillOnly(R(1510, 650, 96, 32, 3), '#ffe58a', { opacity: .85, front: true });
+    s.path(R(1286, 706, 44, 44, 8), { min: .12 });
+    check(s, 1294, 726);
+    s.text('Call the dentist', 1356, 726, { size: 40, weight: 700 });
+    s.text('tomorrow', 1356, 778, { size: 34, color: ORANGE });
+  });
+}},
+/* 4 ---------------------------------------------------------- */
+{ name: '"Who was that?"', x: 4200, y: 1250, build: s => {
+  s.text('Just ask.', 100, 150, { font: 'hand', size: 116 });
+  s.cap('Sarah heads out. A minute later, Joe can\'t place her.');
+  s.fillOnly(R(140, 250, 260, 560, 6), '#efe4cc', { par: false, dur: .2 });
+  s.path(R(140, 250, 260, 560, 6), { speed: 2600 });
+  s.path('M140 250L66 292L66 770L140 810', { fill: '#e2c39a', fillD: 'M140 250L66 292L66 770L140 810Z', speed: 2600 });
+  s.path(E(90, 540, 7), { raw: true, w: 3, fill: INK, pen: false, dur: .05 });
+  s.path(E(292, 470, 26), { fill: SKIN, min: .12 });
+  s.path('M262 452Q270 420 300 424Q330 430 318 470', { color: BROWN, w: 7, min: .1 });
+  s.path('M248 650Q254 524 292 506Q330 524 336 650', { fill: CORAL, fillD: 'M248 650Q254 524 292 506Q330 524 336 650Z', min: .2 });
+  s.path('M350 480L388 480', { min: .06 }); s.path('M352 512L400 512', { min: .06 });
+  s.text('bye, Dad!', 270, 236, { font: 'hand', size: 46, anchor: 'middle', color: GREY });
+  const G = 'translate(790 430)';
+  s.group({ transform: G }, () => grandpa(s, {}));
+  let flat;
+  s.group({ transform: G }, () => { flat = s.path('M-15 55Q0 53 15 55', { min: .1 }); });
+  const q1 = s.text('?', 690, 340, { font: 'hand', size: 96, color: ORANGE, dur: .2 });
+  const q2 = s.text('?', 880, 330, { font: 'hand', size: 84, color: ORANGE, dur: .2 });
+  s.cap('So he double-taps his band and asks.');
+  s.path(E(1080, 830, 118), { fill: CREAM, speed: 2600 });
+  s.path('M988 798L1172 790', { min: .12 }); s.path('M988 870L1172 864', { min: .12 });
+  s.path(R(1050, 774, 60, 112, 14), { fill: DARK, min: .15 });
+  s.path(E(1080, 830, 7), { raw: true, w: 2, color: BLUE, fill: BLUE, pen: false, dur: .05 });
+  glow(s, 1080, 830, { r0: 10, spread: 34 });
+  const finger = s.group({}, () => s.path('M1124 700Q1136 760 1112 790Q1098 800 1090 790Q1102 760 1096 702',
+                                         { fill: SKIN, fillD: 'M1124 700Q1136 760 1112 790Q1098 800 1090 790Q1102 760 1096 702Z', min: .15 }));
+  s.loop(e => {
+    if (e < 0) { finger.setAttribute('transform', ''); return; }
+    const c = e % 2.2, tap = (c < .5) ? Math.abs(Math.sin(c / .5 * Math.PI * 2)) : 0;
+    finger.setAttribute('transform', `translate(0 ${(-tap * 22).toFixed(1)})`);
+  });
+  s.text('double-tap', 945, 846, { font: 'hand', size: 46, color: ORANGE, anchor: 'end' });
+  s.path(bubble(980, 170, 650, 124, 880, 350), { fill: CREAM, speed: 2800 });
+  s.text('Hey Kin, who was that?', 1012, 246, { size: 48 });
+  s.cap('"That was Sarah, your daughter. She\'s moving to Oakland next week."');
+  s.path(bubble(1240, 418, 650, 280, 1170, 760), { color: BLUE, w: 6, fill: LBLUE, speed: 2800 });
+  s.text('That was Sarah, your daughter.', 1268, 490, { size: 38, cps: .026 });
+  s.text('She\'s moving to Oakland', 1268, 548, { size: 38, cps: .026 });
+  s.text('next week.', 1268, 606, { size: 38, cps: .026 });
+  s.text('— Kin, out loud', 1868, 672, { font: 'hand', size: 38, color: BLUE, anchor: 'end' });
+  s.fade([flat.el, q1.el, q2.el], 0, { dur: .35 });
+  s.group({ transform: G }, () => s.path('M-20 50Q0 66 20 50', { w: 6, min: .2 }));
+  const h = s.group({}, () => s.instantly(() => s.path(HEART(682, 330, 30), { raw: true, w: 4, color: RED, fill: RED })));
+  s.pop(h, 682, 330);
+  s.cap('Not sure? Kin says so. It never guesses a name.');
+  s.text('Not sure? Kin says so. It never guesses a name.', 100, 900, { size: 34, color: '#55585f', cps: .02 });
+}},
+/* 5 ---------------------------------------------------------- */
+{ name: 'The scam call', x: 2100, y: 1250, build: s => {
+  s.text('Then the phone rings…', 100, 150, { font: 'hand', size: 108 });
+  s.cap('Then a stranger calls with the classic "grandparent scam."');
+  const jp = s.group({}, () => {
+    phone(s, 150, 250, 250, 460);
+    s.text('Unknown', 275, 430, { size: 36, anchor: 'middle', weight: 700 });
+    s.text('caller', 275, 474, { size: 34, anchor: 'middle' });
+  });
+  const rings = s.group({}, () => {
+    s.path('M126 330Q104 360 126 392', { w: 5, min: .08 }); s.path('M100 306Q68 360 100 414', { w: 5, min: .08 });
+    s.path('M424 330Q446 360 424 392', { w: 5, min: .08 }); s.path('M450 306Q482 360 450 414', { w: 5, min: .08 });
+  });
+  const ringStart = s.t;
+  s.text('Grandpa\'s phone', 275, 770, { font: 'hand', size: 40, color: GREY, anchor: 'middle' });
+  s.path(bubble(480, 236, 760, 226, 420, 380), { color: RED, w: 6, fill: '#fff4f2', speed: 2800 });
+  s.text('"Grandpa, it\'s me. I\'m in jail.', 510, 304, { size: 42, color: '#9b1c16', cps: .026 });
+  s.text('Buy gift cards…', 510, 360, { size: 42, color: '#9b1c16', cps: .026 });
+  s.text('and don\'t tell Mom."', 510, 416, { size: 42, color: '#9b1c16', cps: .026 });
+  s.cap('Kin hears it, and steps in.');
+  s.fx(p => { const v = Math.abs(Math.sin(p * Math.PI * 2)) * (1 - p * .35); flash.setAttribute('opacity', (v * .28).toFixed(3)); shake.v = v; }, { dur: .9, par: true });
+  const stamp = s.group({}, () => s.instantly(() => s.group({ transform: 'rotate(-9 1110 470)' }, () => {
+    s.path(R(970, 410, 290, 122, 14), { raw: true, color: RED, w: 7, fill: '#fff' });
+    s.text('SCAM?', 1115, 500, { font: 'hand', size: 104, color: RED, anchor: 'middle' });
+  })));
+  s.pop(stamp, 1110, 470, { dur: .5 });
+  const ringEnd = s.t + 1.2;
+  s.loop(e => {
+    const live = e >= 0 && e < ringEnd - ringStart;
+    const dx = live ? Math.sin(e * 55) * 5 : 0;
+    jp.setAttribute('transform', `translate(${dx.toFixed(1)} 0)`);
+    rings.style.opacity = e < ringEnd - ringStart ? 1 : Math.max(0, 1 - (e - (ringEnd - ringStart)) * 3);
+  }, { at: ringStart });
+  s.cap('"This sounds like a scam. It\'s okay to hang up." Purchases lock.');
+  s.path(bubble(480, 580, 760, 200, 416, 600), { color: BLUE, w: 6, fill: LBLUE, speed: 2800 });
+  s.text('This sounds like a scam.', 512, 656, { size: 44, cps: .026 });
+  s.text('It\'s okay to hang up.', 512, 716, { size: 44, cps: .026 });
+  s.text('— Kin', 1220, 762, { font: 'hand', size: 38, color: BLUE, anchor: 'end' });
+  lockIcon(s, 500, 846);
+  s.text('purchases locked for 30 min', 586, 884, { size: 38 });
+  s.cap('And Sarah\'s phone buzzes: "Grandpa Joe may not be OK."');
+  s.arrow(1250, 680, 1440, 560, { bend: -50, color: ORANGE });
+  s.text('pings family', 1352, 740, { font: 'hand', size: 40, color: ORANGE, anchor: 'middle' });
+  const fp = s.group({}, () => {
+    phone(s, 1470, 220, 340, 610, { screen: '#eef3fb' });
+    s.text('2:14', 1640, 350, { font: 'hand', size: 70, color: GREY, anchor: 'middle' });
+  });
+  const note = s.group({}, () => s.instantly(() => {
+    s.path(R(1500, 420, 280, 196, 18), { raw: true, w: 4, color: ORANGE, fill: '#fff' });
+    s.text('Kin', 1520, 462, { size: 30, weight: 700, color: BLUE });
+    s.text('Grandpa Joe may', 1520, 508, { size: 31, weight: 700 });
+    s.text('not be OK', 1520, 548, { size: 31, weight: 700 });
+    s.text('possible scam call', 1520, 592, { size: 26, color: RED });
+  }));
+  s.pop(note, 1640, 518, { dur: .5 });
+  const buzzAt = s.t;
+  s.loop(e => {
+    const live = e >= 0 && e < 2.2;
+    fp.setAttribute('transform', `translate(${live ? (Math.sin(e * 60) * 4).toFixed(1) : 0} 0)`);
+  }, { at: buzzAt - .5 });
+  s.text('Sarah\'s phone', 1640, 890, { font: 'hand', size: 40, color: GREY, anchor: 'middle' });
+}},
+/* 6 ---------------------------------------------------------- */
+{ name: 'Falls & wandering', x: 0, y: 1250, build: s => {
+  s.text('If something\'s wrong, Kin checks in.', 100, 150, { font: 'hand', size: 100 });
+  s.cap('If the band feels a fall, Kin asks right away.');
+  s.path('M90 720Q450 710 880 722', { w: 6, speed: 2800 });
+  s.group({ transform: 'rotate(24 250 360)' }, () => bandIcon(s, 250, 360, .75));
+  s.path('M216 246L210 280', { min: .06 }); s.path('M250 236L250 272', { min: .06 }); s.path('M284 246L290 280', { min: .06 });
+  s.path('M276 440Q300 600 372 700', { dash: '10 16', w: 5, color: GREY, speed: 1800 });
+  s.text('thud', 410, 700, { font: 'hand', size: 48, color: ORANGE });
+  s.text('free-fall detected', 100, 790, { font: 'hand', size: 46 });
+  s.path(bubble(440, 240, 460, 214, 320, 330), { color: BLUE, w: 6, fill: LBLUE, speed: 2800 });
+  s.text('Are you okay?', 470, 312, { size: 42, weight: 700 });
+  s.text('Double-tap if', 470, 368, { size: 40 });
+  s.text('you\'re fine.', 470, 418, { size: 40 });
+  s.cap('No double-tap within 15 seconds? The family gets an emergency alert.');
+  s.path(E(660, 586, 70), { w: 5, fill: '#fff', speed: 2400 });
+  const arc = $('path', { fill: 'none', stroke: ORANGE, 'stroke-width': 12, 'stroke-linecap': 'round' }, s.main);
+  const num = $('text', { x: 660, y: 606, 'font-family': 'Caveat, cursive', 'font-size': 60, 'font-weight': 700, 'text-anchor': 'middle', fill: INK }, s.main);
+  s.fx(p => {
+    const a = -Math.PI / 2 + p * Math.PI * 2 * .9999, r = 56;
+    arc.setAttribute('stroke', p >= 1 ? RED : ORANGE);
+    arc.setAttribute('d', p >= 1 ? E(660, 586, r) : p > 0 ? `M660 ${586 - r}A${r} ${r} 0 ${p > .5 ? 1 : 0} 1 ${(660 + r * Math.cos(a)).toFixed(1)} ${(586 + r * Math.sin(a)).toFixed(1)}` : '');
+    num.textContent = p <= 0 ? '' : p < 1 ? Math.ceil(15 * (1 - p)) + 's' : '!';
+    num.setAttribute('fill', p >= 1 ? RED : INK);
+  }, { dur: 2.2 });
+  s.text('no answer → family alerted', 100, 870, { size: 38, color: RED });
+  s.path('M960 230Q948 560 964 930', { color: '#c9c2b2', w: 4, speed: 2600 });
+  s.cap('And if the band drifts far from home, Kin quietly lets the family know.');
+  s.path('M1150 700L1150 600L1230 528L1310 600L1310 700Z', { fill: '#f3d9b5', speed: 2400 });
+  s.path(R(1216, 650, 30, 50, 4), { min: .1 }); s.path(R(1170, 616, 30, 28, 3), { min: .1 });
+  s.path(E(1230, 640, 150), { dash: '14 14', color: BLUE, w: 4, speed: 2600 });
+  s.path(E(1230, 640, 225), { dash: '14 14', color: BLUE, w: 4, speed: 3000, opacity: .6 });
+  s.text('home', 1230, 770, { font: 'hand', size: 42, color: BLUE, anchor: 'middle' });
+  s.path('M1262 700Q1400 726 1452 620Q1500 520 1600 524Q1700 528 1730 452', { dash: '2 20', w: 10, color: INK, speed: 900 });
+  s.path('M1730 456Q1700 416 1700 396A30 30 0 1 1 1760 396Q1760 416 1730 456Z', { fill: RED, fillOpacity: .9, min: .2 });
+  s.path(E(1730, 396, 9), { raw: true, w: 2, fill: '#fff', pen: false, dur: .05 });
+  s.text('signal fading…', 1580, 640, { font: 'hand', size: 40, color: GREY });
+  const n = s.group({}, () => s.instantly(() => {
+    s.path(R(1380, 760, 480, 124, 18), { raw: true, w: 4, color: ORANGE, fill: '#fff' });
+    s.text('Kin: Joe may have wandered off', 1404, 810, { size: 30, weight: 700 });
+    s.text('his band lost touch with home', 1404, 852, { size: 28, color: RED });
+  }));
+  s.pop(n, 1620, 822, { dur: .5 });
+}},
+/* 7 ---------------------------------------------------------- */
+{ name: 'Family summary', x: 0, y: 2500, build: s => {
+  s.text('The family sees a calm summary.', 100, 150, { font: 'hand', size: 100 });
+  s.cap('Each day, the family reads a short, calm summary.');
+  s.path(R(130, 230, 1060, 620, 24), { w: 6, fill: CREAM, speed: 3200 });
+  s.path('M70 878Q660 888 1250 878L1196 850L124 850Z', { fill: '#e6e0d2', speed: 3000 });
+  s.text('Today with Dad', 186, 316, { font: 'hand', size: 70 });
+  s.text('Kin · 6:02 pm', 1140, 306, { size: 28, color: GREY, anchor: 'end' });
+  s.path('M186 340L560 336', { color: BLUE, w: 5, speed: 2600 });
+  s.cap('Who visited, what matters, anything worrying. Never small talk.');
+  const line = (y, draw, txt, col) => { draw(y); s.text(txt, 270, y + 14, { size: 36, color: col ?? INK, cps: .02 }); };
+  line(410, y => s.path(HEART(214, y, 18), { color: RED, fill: RED, fillOpacity: .85, min: .15 }), 'Sarah visited. She\'s moving to Oakland next week.');
+  line(500, y => keyIcon(s, 192, y, .6, INK), 'He put his keys in the kitchen drawer.');
+  line(590, y => shieldIcon(s, 214, y, .45), 'A scam call at 2:14 pm was stopped.', '#9b1c16');
+  line(680, y => check(s, 196, y + 4), 'Reminder: dentist tomorrow.');
+  s.text('small talk never shows up here', 1140, 800, { size: 28, color: GREY, anchor: 'end' });
+  s.group({ transform: 'translate(1560 450)' }, () => sarah(s));
+  const h = s.group({}, () => s.instantly(() => s.path(HEART(1660, 330, 26), { raw: true, w: 4, color: RED, fill: RED })));
+  s.pop(h, 1660, 330);
+  s.cap('Fewer worried phone calls. More real ones.');
+  s.text('fewer worried calls,', 1560, 830, { font: 'hand', size: 56, anchor: 'middle' });
+  s.text('more real ones.', 1560, 892, { font: 'hand', size: 56, anchor: 'middle', color: BLUE });
+}},
+/* 8 ---------------------------------------------------------- */
+{ name: 'Under the hood', x: 2100, y: 2500, hold: 2.6, build: s => {
+  s.text('Under the hood', 100, 140, { font: 'hand', size: 104 });
+  s.cap('The band streams audio over Bluetooth into a Pipecat voice pipeline.');
+  box(s, 70, 300, 260, 130, 'Vexo band', 'mic · taps · falls', INK, '#eef1f6');
+  const a1 = s.arrow(332, 362, 428, 336, { bend: -10 });
+  s.text('Opus / BLE', 200, 480, { anchor: 'middle', font: 'hand', size: 36, color: GREY });
+  s.path(R(390, 220, 770, 410, 28), { dash: '16 14', color: BLUE, w: 4, speed: 3600 });
+  s.text('Pipecat pipeline', 410, 206, { font: 'hand', size: 44, color: BLUE });
+  s.cap('Deepgram transcribes and tells speakers apart; voiceprints know Joe\'s voice.');
+  box(s, 430, 262, 330, 130, 'Deepgram', 'text + who spoke');
+  box(s, 430, 452, 330, 130, 'Voiceprints', 'knows Joe\'s voice');
+  box(s, 830, 340, 290, 150, 'KinRouter', 'listen or ask?', BLUE, LBLUE);
+  const a2 = s.arrow(762, 330, 826, 380);
+  s.arrow(762, 516, 826, 460);
+  s.cap('An AI brain scores what matters and saves it to memory.');
+  box(s, 1232, 214, 340, 140, 'AI brain', 'OpenAI · scores 0–3');
+  const a3 = s.arrow(1122, 380, 1228, 300, { bend: -20 });
+  s.text('listen', 1150, 300, { font: 'hand', size: 36, color: GREY, anchor: 'middle' });
+  box(s, 1640, 214, 240, 140, 'Memory', 'SQLite, local', INK, '#fff7dc');
+  const a4 = s.arrow(1574, 284, 1636, 284);
+  box(s, 1640, 50, 240, 120, 'Gemini 4', 'camera eyes', INK, '#f1ecfb');
+  s.arrow(1760, 172, 1760, 210, { head: 18 });
+  s.cap('On a double-tap, a voice agent answers with memory tools and ElevenLabs.');
+  box(s, 1232, 470, 340, 140, 'Voice agent', 'OpenAI + memory tools');
+  const a5 = s.arrow(1122, 450, 1228, 530, { bend: 20 });
+  s.text('double-tap', 1140, 596, { font: 'hand', size: 36, color: GREY, anchor: 'middle' });
+  box(s, 1640, 470, 240, 140, 'ElevenLabs', 'calm voice');
+  const a6 = s.arrow(1574, 540, 1636, 540);
+  s.arrow(1700, 358, 1560, 466, { bend: 20, color: GREY });
+  s.text('tools read', 1690, 430, { font: 'hand', size: 34, color: GREY });
+  [36, 58].forEach(r => s.path(`M${1770 + r * Math.cos(-.7)} ${680 + r * Math.sin(-.7)}A${r} ${r} 0 0 1 ${1770 + r * Math.cos(.7)} ${680 + r * Math.sin(.7)}`, { color: BLUE, w: 5, min: .1 }));
+  s.path('M1700 664L1722 664L1746 642L1746 718L1722 696L1700 696Z', { fill: DARK, min: .15 });
+  s.text('agent tools', 80, 704, { font: 'hand', size: 44, color: GREY });
+  const tools = [['who_is', 'find_item', 'get_todos'], ['remember', 'complete_todo', 'alert_family'], ['set_speech_speed', 'purchase']];
+  tools.forEach((row, r) => {
+    let x = 80;
+    row.forEach(name => {
+      const w = textWidth(name, 26) + 36, y = 722 + r * 62;
+      s.path(R(x, y, w, 50, 24), { w: 3, fill: '#fff', color: GREY, min: .08, speed: 4000 });
+      s.text(name, x + w / 2, y + 35, { size: 26, anchor: 'middle', dur: .12, pen: false, par: true });
+      x += w + 14;
+    });
+  });
+  s.cap('Every sentence gets a scam check, with push alerts to the family.');
+  box(s, 830, 730, 340, 130, 'Scam check', 'on every sentence', RED, '#fff4f2');
+  const a7 = s.arrow(975, 494, 990, 724);
+  box(s, 1232, 730, 340, 130, 'Family phone', 'ntfy push alerts', ORANGE, '#fff6ea');
+  const a8 = s.arrow(1174, 795, 1228, 795);
+  s.text('every cloud piece has an offline fallback', 1880, 930, { size: 30, color: GREY, anchor: 'end', cps: .015 });
+  const routes = [[a1, a2, a3, a4], [a1, a2, a5, a6], [a1, a2, a7, a8]];
+  const dots = routes.map((_, i) => $('circle', { r: 9, fill: [BLUE, GREEN, RED][i], opacity: 0 }, s.main));
+  const lens = routes.map(rt => rt.map(a => a.el.getTotalLength()));
+  s.loop(e => routes.forEach((rt, i) => {
+    const d = dots[i];
+    if (e < 0) { d.setAttribute('opacity', 0); return; }
+    const per = .55, k = ((e + i * .7) / per) % rt.length, seg = Math.floor(k), f = k - seg;
+    const pt = rt[seg].el.getPointAtLength(lens[i][seg] * f);
+    d.setAttribute('cx', pt.x); d.setAttribute('cy', pt.y);
+    d.setAttribute('opacity', Math.min(1, e * 2));
+  }));
+}},
+/* 9 ---------------------------------------------------------- */
+{ name: 'Why it matters', x: 4200, y: 2500, build: s => {
+  s.text('Why it matters', 100, 150, { font: 'hand', size: 108 });
+  const col = (cx, icon, head, lines, color) => {
+    icon(cx);
+    s.text(head, cx, 540, { font: 'hand', size: 62, anchor: 'middle', color });
+    lines.forEach((l, i) => s.text(l, cx, 604 + i * 48, { size: 33, anchor: 'middle', cps: .02 }));
+  };
+  s.cap('Families pay monthly, like a medical-alert pendant.');
+  col(360, cx => { s.path(HEART(cx, 370, 70), { color: RED, w: 6, fill: RED, fillOpacity: .85 }); },
+      'Families pay', ['a monthly plan, like a', 'medical-alert pendant;', 'one stopped scam pays', 'for years'], RED);
+  s.cap('Next: memory clinics and care homes, priced per resident.');
+  col(960, cx => {
+    s.path(`M${cx - 90} 450L${cx - 90} 320L${cx} 270L${cx + 90} 320L${cx + 90} 450Z`, { fill: '#e8eefb', speed: 2400 });
+    s.path(`M${cx - 12} 340H${cx + 12}V364H${cx + 36}V388H${cx + 12}V412H${cx - 12}V388H${cx - 36}V364H${cx - 12}Z`, { color: RED, fill: RED, min: .2 });
+  }, 'Clinics & care homes', ['priced per resident;', 'staff see who needs', 'a check-in'], BLUE);
+  s.cap('Private by design: small talk never kept, memory stays local.');
+  col(1560, cx => { shieldIcon(s, cx, 370, 1.5, GREEN); check(s, cx - 22, 372, '#fff'); },
+      'Private by design', ['small talk is never stored', 'memory stays local', 'family can delete anything'], GREEN);
+  s.cap('And dignity: he never has to pull out a phone.');
+  s.text('And dignity: he never has to pull out a phone.', 960, 830, { font: 'hand', size: 70, anchor: 'middle' });
+  s.hl(330, 782, 1260, 64, { opacity: .5 });
+}},
+/* 10 --------------------------------------------------------- */
+{ name: 'Kin', x: 2100, y: 3750, hold: 3,
+  cam: [{ t: 0, x: 2100, y: 1875, z: .205 }, { t: 1.7, x: 2100, y: 1875, z: .205 }, { t: 3.5, x: 2100, y: 3750, z: 1 }],
+  build: s => {
+  s.cap('Kin. It remembers, so they don\'t have to.');
+  s.at(3.1);
+  s.group({ transform: 'translate(560 500) scale(1.7)' }, () => bandIcon(s, 0, 0));
+  glow(s, 560, 500, { spread: 110, r0: 22 });
+  s.text('Kin', 760, 600, { font: 'hand', size: 330, color: BLUE, dur: .9 });
+  s.text('remembers, so they don\'t have to.', 960, 760, { font: 'hand', size: 92, anchor: 'middle', dur: 1.3 });
+  s.path('M520 790Q960 772 1400 792', { w: 8, color: ORANGE, speed: 2400 });
+  s.cap('Let me show you, live.');
+  s.text('VexoHacks · github.com/TamirPol/kin', 100, 960, { size: 30, color: GREY, cps: .015 });
+  s.text('live demo', 1640, 955, { font: 'hand', size: 76, color: RED, anchor: 'end' });
+  s.arrow(1660, 930, 1850, 930, { color: RED, w: 7, head: 30 });
+}},
+];
+
+/* ============================================================
+   Engine: build, camera, pen, playback
+   ============================================================ */
+const PAN = 1.4, HOLD = 1.8;
+let idx = 0, clock = 0, playing = true, captions = true;
+let cam = { x: 0, y: 0, z: 1 }, from = null;
+
+function buildAll() {
+  SCENES.forEach(sc => {
+    sc.pan = sc.pan ?? PAN;
+    sc.g = $('g', { transform: `translate(${sc.x - W / 2} ${sc.y - H / 2})` }, world);
+    const b = new Builder(sc.g);
+    sc.build(b);
+    sc.items = b.items; sc.caps = b.caps; sc.loops = b.loops;
+    const end = Math.max(...b.items.map(i => i.t0 + i.dur), 0);
+    sc.content = end; sc.D = sc.pan + end + (sc.hold ?? HOLD);
+    sc.penItems = sc.items.filter(i => i.pen).sort((a, b) => a.t0 - b.t0);
+    sc.penItems.forEach(it => { it.p0 = it.point(0); it.p1 = it.point(1); });
+    sc.state = 'empty';
+  });
+}
+function target(sc) { const c = sc.cam ? sc.cam[0] : { x: sc.x, y: sc.y, z: sc.z ?? 1 }; return { x: c.x, y: c.y, z: c.z }; }
+function camAt(sc, tl) {
+  const to = target(sc);
+  if (tl < sc.pan) {
+    const e = ease(clamp(tl / sc.pan));
+    const f = from ?? to, dip = Math.hypot(f.x - to.x, f.y - to.y) > 10 ? .16 : 0;
+    return { x: lerp(f.x, to.x, e), y: lerp(f.y, to.y, e), z: lerp(f.z, to.z, e) * (1 - dip * Math.sin(Math.PI * e)) };
+  }
+  const lt = tl - sc.pan;
+  if (sc.cam) {
+    const k = sc.cam; let i = 0;
+    while (i < k.length - 1 && lt > k[i + 1].t) i++;
+    if (i === k.length - 1) return { ...k[i] };
+    const e = ease(clamp((lt - k[i].t) / (k[i + 1].t - k[i].t)));
+    const z = Math.exp(lerp(Math.log(k[i].z), Math.log(k[i + 1].z), e));
+    return { x: lerp(k[i].x, k[i + 1].x, e), y: lerp(k[i].y, k[i + 1].y, e), z };
+  }
+  const u = clamp(lt / Math.max(1, sc.D - sc.pan));
+  return { x: to.x, y: to.y, z: to.z * (1 + .022 * u) };
+}
+
+/* the marker: tip at (0,0), body toward the lower right */
+const pen = (() => {
+  const shadow = $('g', { filter: 'url(#penShadow)', opacity: .28 }, penG);
+  const body = $('g', {}, penG);
+  const shape = g => {
+    const r = $('g', { transform: 'rotate(42)' }, g);
+    return {
+      tip: $('path', { d: 'M0 0L24 -8L24 8Z', fill: INK }, r),
+      cone: $('path', { d: 'M24 -10L50 -17L50 17L24 10Z', fill: '#d8d8d8', stroke: INK, 'stroke-width': 3, 'stroke-linejoin': 'round' }, r),
+      barrel: $('rect', { x: 50, y: -18, width: 210, height: 36, rx: 7, fill: '#f7f7f5', stroke: INK, 'stroke-width': 3 }, r),
+      stripe: $('rect', { x: 66, y: -18, width: 22, height: 36, fill: INK }, r),
+      label: $('path', { d: 'M110 -6H210M110 6H180', stroke: '#c9c9c9', 'stroke-width': 4, 'stroke-linecap': 'round' }, r),
+      cap: $('rect', { x: 256, y: -19, width: 56, height: 38, rx: 11, fill: INK, stroke: INK, 'stroke-width': 3 }, r),
+    };
+  };
+  shape(shadow); const p = shape(body);
+  Object.values(shadow.querySelectorAll('*')).forEach(e => { if (e.tagName !== 'g') { e.setAttribute('fill', '#000'); e.setAttribute('stroke', '#000'); } });
+  let lastColor = null;
+  return {
+    set(x, y, down, color, t) {
+      const lift = down ? 0 : 1, wob = Math.sin(t * 7) * 1.5;
+      body.setAttribute('transform', `translate(${(x - lift * 6).toFixed(1)} ${(y - lift * 10).toFixed(1)}) rotate(${wob.toFixed(2)})`);
+      shadow.setAttribute('transform', `translate(${(x + 18 + lift * 16).toFixed(1)} ${(y + 22 + lift * 24).toFixed(1)}) rotate(${wob.toFixed(2)})`);
+      if (color && color !== lastColor) { lastColor = color; ['tip', 'stripe', 'cap'].forEach(k => { p[k].setAttribute('fill', color); }); p.cap.setAttribute('stroke', INK); }
+    },
+  };
+})();
+
+function toStage(el, pt) { const m = el.getCTM(); return { x: m.a * pt.x + m.c * pt.y + m.e, y: m.b * pt.x + m.d * pt.y + m.f }; }
+const OFF = { x: W + 320, y: H + 260 };
+function updatePen(sc, lt, realT) {
+  let active = null, prev = null, next = null;
+  for (const it of sc.penItems) {
+    if (it.t0 <= lt && lt < it.t0 + it.dur) active = it;
+    if (it.t0 + it.dur <= lt && (!prev || it.t0 + it.dur >= prev.t0 + prev.dur)) prev = it;
+    if (it.t0 > lt && (!next || it.t0 < next.t0)) next = it;
+  }
+  if (active) {
+    const pt = toStage(active.penEl, active.point((lt - active.t0) / active.dur));
+    return pen.set(pt.x, pt.y, true, active.color, realT);
+  }
+  const a = prev ? toStage(prev.penEl, prev.p1) : OFF;
+  if (next) {
+    const gapStart = prev ? prev.t0 + prev.dur : -sc.pan;
+    const travel = Math.min(.5, next.t0 - gapStart);
+    const k = ease(clamp((lt - (next.t0 - travel)) / travel));
+    const b = toStage(next.penEl, next.p0);
+    return pen.set(lerp(a.x, b.x, k), lerp(a.y, b.y, k), false, k > .5 ? next.color : (prev ? prev.color : next.color), realT);
+  }
+  const k = ease(clamp((lt - (prev ? prev.t0 + prev.dur : 0)) / 1.0));
+  pen.set(lerp(a.x, OFF.x, k), lerp(a.y, OFF.y, k), false, prev ? prev.color : INK, realT);
+}
+
+let lastCap = null;
+function render(realT) {
+  const sc = SCENES[idx], lt = clock - sc.pan;
+  let c = camAt(sc, clock);
+  if (shake.v > 0) { c = { ...c, x: c.x + Math.sin(realT * 90) * 9 * shake.v, y: c.y + Math.cos(realT * 70) * 6 * shake.v }; }
+  cam = c;
+  world.setAttribute('transform', `translate(${W / 2} ${H / 2}) scale(${c.z.toFixed(5)}) translate(${(-c.x).toFixed(2)} ${(-c.y).toFixed(2)})`);
+  stage.style.backgroundPosition = `${(W / 2 - c.x * c.z).toFixed(1)}px ${(H / 2 - c.y * c.z).toFixed(1)}px`;
+  stage.style.backgroundSize = `${(512 * c.z).toFixed(1)}px`;
+  SCENES.forEach((s, j) => {
+    const want = j < idx ? 'full' : j > idx ? 'empty' : 'live';
+    const t = j < idx ? 1e9 : j > idx ? -1e9 : lt;
+    if (want === 'live' || s.state !== want) {
+      for (const it of s.items) { const p = clamp((t - it.t0) / it.dur); if (p !== it.last) { it.last = p; it.update(p); } }
+      s.state = want;
+    }
+    for (const l of s.loops) l.fn(j < idx ? 60 + realT : j > idx ? -1 : (t - l.t0 >= 0 ? t - l.t0 : -1));
+  });
+  updatePen(sc, lt, realT);
+  let cap = '';
+  for (const k of sc.caps) if (k.t <= lt) cap = k.text;
+  if (cap !== lastCap) {
+    lastCap = cap;
+    if (cap) { capEl.textContent = cap; capEl.classList.add('on'); } else capEl.classList.remove('on');
+  }
+  const before = SCENES.slice(0, idx).reduce((a, s) => a + s.D, 0), total = SCENES.reduce((a, s) => a + s.D, 0);
+  document.getElementById('prog').style.width = ((before + clock) / total * 100).toFixed(2) + '%';
+  const tt = before + clock, fmt = v => `${Math.floor(v / 60)}:${String(Math.floor(v % 60)).padStart(2, '0')}`;
+  document.getElementById('tc').textContent = `${fmt(tt)} / ${fmt(total)}`;
+}
+
+function goto(n, o = {}) {
+  n = clamp(n, 0, SCENES.length - 1);
+  from = o.instant ? null : { ...cam };
+  idx = n; clock = o.t ?? 0;
+  if (o.instant) from = target(SCENES[n]);
+  document.querySelectorAll('#dots button').forEach((b, i) => b.classList.toggle('cur', i === idx));
+}
+function setPlaying(v) { playing = v; document.getElementById('play').textContent = v ? 'pause' : 'play'; }
+
+let lastNow = null;
+function frame(now) {
+  const realT = now / 1000;
+  if (lastNow != null && playing) {
+    clock += Math.min(.05, realT - lastNow);
+    const sc = SCENES[idx];
+    if (clock >= sc.D) {
+      if (idx < SCENES.length - 1) { const over = clock - sc.D; goto(idx + 1); clock = over; }
+      else { clock = sc.D; setPlaying(false); }
+    }
+  }
+  lastNow = realT;
+  render(realT);
+  requestAnimationFrame(frame);
+}
+
+/* ---------- paper, fit, input ---------- */
+function paper() {
+  const cv = document.createElement('canvas'); cv.width = cv.height = 512;
+  const c = cv.getContext('2d');
+  c.fillStyle = '#fbf7ee'; c.fillRect(0, 0, 512, 512);
+  const img = c.getImageData(0, 0, 512, 512), d = img.data;
+  for (let i = 0; i < d.length; i += 4) { const n = (Math.random() - .5) * 13; d[i] += n; d[i + 1] += n; d[i + 2] += n * .9; }
+  c.putImageData(img, 0, 0);
+  for (let i = 0; i < 160; i++) {
+    c.strokeStyle = Math.random() < .5 ? 'rgba(120,95,50,.05)' : 'rgba(255,255,255,.35)';
+    c.lineWidth = .6 + Math.random();
+    c.beginPath(); const x = Math.random() * 512, y = Math.random() * 512, a = Math.random() * 6.28, l = 6 + Math.random() * 22;
+    c.moveTo(x, y); c.quadraticCurveTo(x + Math.cos(a + .6) * l / 2, y + Math.sin(a + .6) * l / 2, x + Math.cos(a) * l, y + Math.sin(a) * l); c.stroke();
+  }
+  stage.style.backgroundImage = `url(${cv.toDataURL()})`;
+}
+function fit() { const k = Math.min(innerWidth / W, innerHeight / H); stage.style.transform = `translate(-50%,-50%) scale(${k})`; }
+
+function setupUI() {
+  const dots = document.getElementById('dots');
+  SCENES.forEach((sc, i) => {
+    const b = document.createElement('button'); b.textContent = i + 1; b.title = sc.name;
+    b.onclick = () => { goto(i); setPlaying(true); }; dots.appendChild(b);
+  });
+  document.getElementById('play').onclick = () => setPlaying(!playing);
+  addEventListener('keydown', e => {
+    if (e.metaKey || e.ctrlKey || e.altKey) return;
+    const k = e.key;
+    if (k === 'ArrowRight' || k === ' ' || k === 'PageDown') { goto(idx + 1); setPlaying(true); }
+    else if (k === 'ArrowLeft' || k === 'PageUp') { goto(idx - 1); setPlaying(true); }
+    else if (k === 'p' || k === 'k') setPlaying(!playing);
+    else if (k === 'c') { captions = !captions; document.body.classList.toggle('nocaps', !captions); }
+    else if (k === 'r') document.body.classList.toggle('record');
+    else if (k === 'f') { if (document.fullscreenElement) document.exitFullscreen(); else document.documentElement.requestFullscreen?.(); }
+    else if (k === 'Home') { resetAll(); goto(0, { instant: true }); setPlaying(true); }
+    else if (/^[0-9]$/.test(k)) { goto(k === '0' ? 9 : +k - 1); setPlaying(true); }
+    else return;
+    e.preventDefault();
+  });
+  addEventListener('resize', fit);
+}
+function resetAll() { SCENES.forEach(s => s.state = 'dirty'); }
+
+async function start() {
+  paper(); fit(); setupUI();
+  try {
+    await Promise.race([
+      Promise.all(['700 40px Caveat', '500 40px Caveat', '400 40px Kalam', '700 40px Kalam'].map(f => document.fonts.load(f))),
+      new Promise(r => setTimeout(r, 4000)),
+    ]);
+  } catch (_) {}
+  buildAll();
+  document.getElementById('loading').remove();
+  const q = new URLSearchParams(location.search);
+  if (q.get('captions') === '0') { captions = false; document.body.classList.add('nocaps'); }
+  if (q.get('record') === '1') document.body.classList.add('record');
+  const n = clamp((parseInt(q.get('scene') || '1', 10) || 1) - 1, 0, SCENES.length - 1);
+  goto(n, { instant: true, t: parseFloat(q.get('t') || '0') || 0 });
+  if (q.get('paused') === '1') setPlaying(false);
+  window.KIN = {
+    scenes: SCENES.map((s, i) => ({ n: i + 1, name: s.name, seconds: +s.D.toFixed(1) })),
+    seek: (n, t) => { goto(n - 1, { instant: true, t }); setPlaying(false); render(performance.now() / 1000); },
+    play: () => setPlaying(true),
+  };
+  requestAnimationFrame(frame);
+}
+start();
+</script>
+</body>
+</html>
