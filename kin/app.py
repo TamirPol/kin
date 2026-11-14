@@ -335,9 +335,13 @@ class Kin:
 
     def _wearer_label(self) -> str | None:
         """The speaker whose voice is clearly the loudest at the wrist."""
-        meds = {l: statistics.median(v) for l, v in self._speaker_db.items() if len(v) >= 2 and l != "speaker ?"}
+        known = {l: v for l, v in self._speaker_db.items() if v and l != "speaker ?"}
+        if len(known) == 1:                         # only one voice heard so far: that's the wearer
+            self._last_wearer = next(iter(known))
+            return self._last_wearer
+        meds = {l: statistics.median(v) for l, v in known.items() if len(v) >= 2}
         if not meds:
-            return None
+            return self._last_wearer
         ranked = sorted(meds.items(), key=lambda kv: kv[1], reverse=True)
         if len(ranked) == 1:
             self._last_wearer = ranked[0][0]        # only one voice so far: assume it's the wearer
