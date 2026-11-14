@@ -3,111 +3,246 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
 <title>Kin Hearing Check</title>
+<link rel="icon" href="/static/kin-mark.svg" type="image/svg+xml">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Nunito+Sans:opsz,wght@6..12,400..800&display=swap">
 <style>
-  :root { --bg:#faf8f4; --card:#fff; --ink:#1b1916; --muted:#6d675e; --line:#e6e0d6;
-          --ok:#17803f; --okbg:#dff3e6; --bad:#c2321f; --badbg:#fde4df; --wait:#946100; --waitbg:#fff1d2;
-          --you:#2453c9; --other:#7240c9; --kin:#17803f; }
+  /* Same tokens as the family page: plum is Kin, green/amber/red are state only. */
+  :root {
+    --bg:#f4f1f4; --surface:#fff; --surface-2:#f8f5f8; --ink:#241c2a; --muted:#5d5466; --faint:#6f6678; --line:#e6e0e8;
+    --accent:#7b3f72; --accent-ink:#fff; --accent-soft:#f3e7f0; --accent-text:#7b3f72;
+    --ok:#1d7a4c; --ok-soft:#e2f3e9; --warn:#8a5800; --warn-soft:#fcf0d4; --bad:#b42318; --bad-soft:#fdece9;
+    --you:#2f5fa8; --you-soft:#e6eef9;
+    --shadow: 0 1px 2px rgba(50,25,50,.05), 0 8px 24px -12px rgba(50,25,50,.14);
+    --sans:"Nunito Sans",ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
+    color-scheme: light;
+  }
   @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
-          --bg:#121110; --card:#1d1b19; --ink:#f4f0ea; --muted:#a8a197; --line:#33302b;
-          --ok:#51c985; --okbg:#173a26; --bad:#ff7d6b; --badbg:#3f1914; --wait:#f3bb4d; --waitbg:#3b2c0e;
-          --you:#86a6ff; --other:#bd9cff; --kin:#51c985; } }
+    --bg:#16131a; --surface:#201c25; --surface-2:#29242f; --ink:#f3eef5; --muted:#c4bacb; --faint:#a69dad; --line:#36303d;
+    --accent:#e3a8d7; --accent-ink:#241c2a; --accent-soft:#3a2737; --accent-text:#eebfe4;
+    --ok:#7bd6a4; --ok-soft:#173327; --warn:#f2c56c; --warn-soft:#382c12; --bad:#ff8b7c; --bad-soft:#3f1f1b;
+    --you:#9cc0ff; --you-soft:#1d2a40; --shadow: none; color-scheme: dark; } }
   * { box-sizing: border-box; }
-  body { margin:0; background:var(--bg); color:var(--ink); font:20px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif; }
-  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 60px; }
-  .big { border-radius: 22px; padding: 26px 28px; margin-bottom: 18px; background: var(--waitbg); color: var(--wait); }
-  .big.ok { background: var(--okbg); color: var(--ok); } .big.bad { background: var(--badbg); color: var(--bad); }
-  .big h1 { margin: 0; font-size: 40px; line-height: 1.15; } .big p { margin: 6px 0 0; font-size: 21px; color: inherit; opacity: .9; }
-  .meter { height: 18px; border-radius: 9px; background: rgba(127,127,127,.25); overflow: hidden; margin-top: 16px; }
-  .meter div { height: 100%; width: 0; background: currentColor; transition: width .2s; }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 22px 24px; margin-bottom: 18px; }
-  .card h2 { margin: 0 0 14px; font-size: 16px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
-  #now { font-size: 30px; font-weight: 650; min-height: 44px; }
-  #nowWho { font-size: 18px; color: var(--muted); margin-bottom: 4px; }
-  .line { padding: 12px 0; border-bottom: 1px solid var(--line); }
-  .line:last-child { border-bottom: 0; }
-  .who { font-weight: 750; font-size: 17px; } .who.you { color: var(--you); } .who.other { color: var(--other); } .who.kin { color: var(--kin); }
-  .line.kin { background: var(--okbg); margin: 6px -12px; padding: 12px; border-radius: 14px; border: 0; }
-  .muted { color: var(--muted); }
-  .row { display: flex; gap: 10px; flex-wrap: wrap; }
-  button { font: inherit; font-size: 18px; font-weight: 700; border: 0; border-radius: 14px; padding: 14px 18px; cursor: pointer; background: var(--ink); color: var(--bg); }
-  button.alt { background: var(--line); color: var(--ink); }
-  form { display: flex; gap: 10px; margin-top: 12px; }
-  input { flex: 1; min-width: 0; font: inherit; font-size: 18px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
-  details summary { cursor: pointer; font-weight: 700; color: var(--muted); }
-  a { color: inherit; }
+  html { font-size: clamp(16px, .45vw + 12.5px, 23px); }
+  body { margin:0; background:var(--bg); color:var(--ink); font:400 1rem/1.5 var(--sans); -webkit-font-smoothing:antialiased; }
+  [hidden] { display:none !important; }
+  :focus-visible { outline:3px solid var(--accent); outline-offset:2px; border-radius:.4rem; }
+  .i { width:1.2em; height:1.2em; flex-shrink:0; fill:none; stroke:currentColor; stroke-width:1.8; stroke-linecap:round; stroke-linejoin:round; }
+  main { max-width: 72rem; margin: 0 auto; padding: 1rem 16px 3rem; }
+  @media (min-width:700px) { main { padding: 1.4rem 2.5rem 3rem; } }
+
+  /* header */
+  .top { display:flex; align-items:center; justify-content:space-between; gap:1rem; margin-bottom:1.4rem; }
+  .brand { display:flex; align-items:center; gap:.6rem; min-width:0; }
+  .brand img { width:2rem; height:2rem; display:block; }
+  .brand b { font-weight:800; font-size:1.25rem; }
+  .brand span { color:var(--muted); padding-left:.7rem; border-left:1px solid var(--line); white-space:nowrap; }
+  .pill-link { display:inline-flex; align-items:center; gap:.35rem; min-height:2.6rem; padding:0 1rem; border-radius:999px;
+    border:1px solid var(--line); background:var(--surface); color:var(--ink); text-decoration:none; font-weight:600; font-size:.92rem; white-space:nowrap; }
+  .pill-link:hover { border-color:var(--accent); color:var(--accent-text); }
+
+  /* the one answer */
+  .big { --tone:var(--warn); --tone-soft:var(--warn-soft);
+    position:relative; overflow:hidden; border-radius:1.75rem; padding:2rem 1.6rem 1.6rem; margin-bottom:1.2rem;
+    background:var(--surface); border:1px solid var(--line); box-shadow:var(--shadow); }
+  .big::before { content:""; position:absolute; inset:0; pointer-events:none;
+    background: radial-gradient(70rem 22rem at 50% -30%, var(--tone-soft), transparent 70%); transition: background .4s; }
+  .big > * { position:relative; }
+  .big.ok { --tone:var(--ok); --tone-soft:var(--ok-soft); }
+  .big.bad { --tone:var(--bad); --tone-soft:var(--bad-soft); }
+  .big.speak { --tone:var(--accent); --tone-soft:var(--accent-soft); }
+  .answer { display:flex; align-items:center; gap:1.3rem; }
+  .orb { width:5rem; height:5rem; border-radius:50%; flex-shrink:0; display:grid; place-items:center;
+    background:var(--tone); color:var(--surface); box-shadow:0 0 0 .6rem var(--tone-soft); }
+  .orb .i { width:2.5rem; height:2.5rem; stroke-width:2.2; display:none; grid-area:1/1; }
+  .big[data-icon="hear"] .o-hear, .big[data-icon="speak"] .o-speak, .big[data-icon="ask"] .o-ask,
+  .big[data-icon="off"] .o-off, .big[data-icon="quiet"] .o-quiet, .big:not([data-icon]) .o-wait, .big[data-icon="wait"] .o-wait { display:block; }
+  .big.ok .orb, .big.speak .orb { animation: breathe 3.2s ease-in-out infinite; }
+  @keyframes breathe { 50% { box-shadow:0 0 0 1.1rem var(--tone-soft); } }
+  .big h1 { margin:0; font-weight:600;
+    font-weight:800; font-size:clamp(2.3rem, 4vw + .5rem, 4.2rem); line-height:1.05; letter-spacing:-.03em; color:var(--tone); text-wrap:balance; }
+  .big p { margin:.5rem 0 0; font-size:1.15rem; color:var(--muted); }
+  .level { display:flex; align-items:center; gap:1rem; margin-top:1.6rem; }
+  .level small { color:var(--muted); font-size:.85rem; font-weight:600; white-space:nowrap; }
+  .meter { flex:1; height:1.4rem; border-radius:.5rem; background:var(--line); overflow:hidden;
+    -webkit-mask: repeating-linear-gradient(90deg, #000 0 calc(100%/40 - 3px), transparent calc(100%/40 - 3px) calc(100%/40));
+            mask: repeating-linear-gradient(90deg, #000 0 calc(100%/40 - 3px), transparent calc(100%/40 - 3px) calc(100%/40)); }
+  .meter div { height:100%; width:0; background:var(--tone); transition:width .15s ease-out; }
+  @media (max-width:520px) {
+    .answer { flex-direction:column; align-items:flex-start; gap:1.1rem; }
+    .orb { width:4rem; height:4rem; } .orb .i { width:2rem; height:2rem; }
+    .big { padding:1.5rem 1.2rem 1.3rem; }
+  }
+
+  /* panels */
+  .grid { display:grid; gap:1.2rem; }
+  @media (min-width:980px) { .grid { grid-template-columns: 1.15fr 1fr; align-items:start; } }
+  .col { display:grid; gap:1.2rem; }
+  .card { background:var(--surface); border:1px solid var(--line); border-radius:1.5rem; padding:1.2rem 1.3rem 1.3rem; box-shadow:var(--shadow); min-width:0; }
+  .card h2 { margin:0 0 .9rem; font-size:1.05rem; font-weight:700; display:flex; align-items:center; gap:.65rem; }
+  .ico { width:2.2rem; height:2.2rem; border-radius:.75rem; display:grid; place-items:center; background:var(--accent-soft); color:var(--accent-text); flex-shrink:0; }
+  .ico .i { width:1.25rem; height:1.25rem; }
+  .muted { color:var(--muted); }
+
+  .heard { margin-bottom:1.2rem; }
+  #nowWho { font-size:.95rem; font-weight:600; color:var(--muted); min-height:1.4em; }
+  #now { font-size:clamp(1.4rem, 1.2vw + 1rem, 2.1rem);
+    line-height:1.3; font-weight:700; min-height:2.6rem; margin-top:.2rem; overflow-wrap:anywhere; }
+  #now.muted { font-family:var(--sans); font-size:1.05rem; color:var(--muted); }
+
+  #feed { display:flex; flex-direction:column; gap:.2rem; }
+  .line { display:flex; gap:.8rem; padding:.7rem .5rem; margin:0 -.5rem; border-radius:.8rem; border-top:1px solid var(--line); }
+  .line.new { animation: rise 2.4s ease-out; }
+  .line:first-child { border-top:0; padding-top:.1rem; }
+  .line .dot { width:.65rem; height:.65rem; border-radius:50%; margin-top:.45rem; flex-shrink:0; background:var(--faint); }
+  .line.you .dot { background:var(--you); } .line.kin .dot { background:var(--accent); }
+  .line > div:last-child { min-width:0; overflow-wrap:anywhere; }
+  .who { font-weight:700; font-size:.85rem; color:var(--muted); }
+  .who.you { color:var(--you); } .who.kin { color:var(--accent-text); }
+  .line.kin .said { font-weight:600; }
+  @keyframes rise { from { background:var(--accent-soft); } to { background:transparent; } }
+
+  .row { display:flex; gap:.6rem; flex-wrap:wrap; }
+  button { font:inherit; font-weight:700; border:0; border-radius:999px; min-height:2.9rem; padding:.6rem 1.3rem; cursor:pointer;
+    background:var(--accent); color:var(--accent-ink); display:inline-flex; align-items:center; justify-content:center; gap:.45rem; }
+  button:hover { filter:brightness(1.07); }
+  button.alt { background:var(--surface-2); color:var(--ink); border:1px solid var(--line); }
+  button.alt:hover { border-color:var(--accent); filter:none; }
+  form { display:flex; gap:.6rem; margin-top:.9rem; }
+  input, select { flex:1; min-width:0; font:inherit; min-height:2.9rem; padding:.55rem .9rem; border-radius:.8rem; border:1px solid var(--line);
+    background:var(--surface-2); color:var(--ink); }
+  input::placeholder { color:var(--faint); }
+  select { flex:0 1 auto; }
+  .lead { margin:0 0 .2rem; color:var(--muted); font-size:.95rem; max-width:40rem; }
+  #enrollForm { flex-wrap:wrap; }
+  #enrollForm input { flex:1 1 14rem; }
+  #enrollForm select, #enrollForm button { flex:1 1 auto; }
+  #enrollState:not(:empty) { margin-top:1rem; padding:.9rem 1.1rem; border-radius:1rem; background:var(--accent-soft);
+    font-size:1.4rem; font-weight:600; color:var(--accent-text); }
+  #enrollState.done { background:var(--ok-soft); color:var(--ok); }
+  #enrollState.fail { background:var(--warn-soft); color:var(--warn); }
+  #voices { margin-top:1rem; }
+  .chips { display:flex; flex-wrap:wrap; gap:.5rem; margin-top:.5rem; }
+  .chip { display:inline-flex; align-items:center; gap:.5rem; padding:.3rem .9rem .3rem .3rem; border-radius:999px; background:var(--surface-2); border:1px solid var(--line); }
+  .chip b { width:1.9rem; height:1.9rem; border-radius:50%; display:grid; place-items:center; background:var(--accent); color:var(--accent-ink); font-size:.85rem; }
+  .chip small { color:var(--muted); }
+  details summary { cursor:pointer; font-weight:700; list-style:none; display:flex; align-items:center; gap:.65rem; }
+  details summary::-webkit-details-marker { display:none; }
+  details summary::after { content:""; margin-left:auto; width:.5rem; height:.5rem; border-right:2px solid var(--muted); border-bottom:2px solid var(--muted); transform:rotate(45deg); transition:transform .2s; }
+  details[open] summary::after { transform:rotate(225deg); }
+  @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation:none !important; transition:none !important; } }
+  @media (max-width:520px) { .brand span { display:none; } }
 </style>
 </head>
 <body>
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-ear" viewBox="0 0 24 24"><path d="M7 9.5a5 5 0 0 1 10 0c0 3-2.5 3.8-2.5 6.3a2.7 2.7 0 0 1-5 1.3"/><path d="M10 10a2 2 0 0 1 4 0c0 1.2-1 1.6-1 2.6"/></symbol>
+  <symbol id="i-speaker" viewBox="0 0 24 24"><path d="M5 9.5h2.8L12 6v12l-4.2-3.5H5z"/><path d="M15.5 9.2a4 4 0 0 1 0 5.6M18 6.8a7.5 7.5 0 0 1 0 10.4"/></symbol>
+  <symbol id="i-q" viewBox="0 0 24 24"><path d="M9.3 9.3a2.8 2.8 0 1 1 3.9 2.6c-.8.4-1.2 1-1.2 1.8v.6"/><circle cx="12" cy="17.2" r=".6" fill="currentColor"/></symbol>
+  <symbol id="i-off" viewBox="0 0 24 24"><rect x="8" y="4" width="8" height="16" rx="3"/><path d="M4 4l16 16"/></symbol>
+  <symbol id="i-quiet" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M6 11.5a6 6 0 0 0 12 0M12 17.5V20.5"/><path d="M4 4l16 16"/></symbol>
+  <symbol id="i-dots" viewBox="0 0 24 24"><circle cx="7" cy="12" r="1" fill="currentColor"/><circle cx="12" cy="12" r="1" fill="currentColor"/><circle cx="17" cy="12" r="1" fill="currentColor"/></symbol>
+  <symbol id="i-mic" viewBox="0 0 24 24"><rect x="9" y="3.5" width="6" height="11" rx="3"/><path d="M6 11.5a6 6 0 0 0 12 0M12 17.5V20.5"/></symbol>
+  <symbol id="i-quote" viewBox="0 0 24 24"><path d="M5 5.5h14a1.5 1.5 0 0 1 1.5 1.5v8.5A1.5 1.5 0 0 1 19 17h-7l-4.5 3.5V17H5a1.5 1.5 0 0 1-1.5-1.5V7A1.5 1.5 0 0 1 5 5.5Z"/></symbol>
+  <symbol id="i-list" viewBox="0 0 24 24"><path d="M8 7h11M8 12h11M8 17h7M4.5 7h0M4.5 12h0M4.5 17h0"/></symbol>
+  <symbol id="i-people" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.2"/><path d="M3.5 19c.6-3.2 2.8-5 5.5-5s4.9 1.8 5.5 5"/><circle cx="16.8" cy="9" r="2.4"/><path d="M15.5 14.2c2.6-.3 4.5 1.3 5 4.3"/></symbol>
+  <symbol id="i-flask" viewBox="0 0 24 24"><path d="M9.5 4h5M10.5 4v5L5.5 18a1.5 1.5 0 0 0 1.3 2.2h10.4a1.5 1.5 0 0 0 1.3-2.2L13.5 9V4"/><path d="M8 14.5h8"/></symbol>
+</svg>
 <main>
-  <section class="big" id="status">
-    <h1 id="statusTitle">Waiting for Kin…</h1>
-    <p id="statusText">Start Kin, then double-tap the band.</p>
-    <div class="meter"><div id="meter"></div></div>
+  <header class="top">
+    <div class="brand"><img src="/static/kin-mark.svg" alt=""><b>Kin</b><span>Hearing check</span></div>
+    <a class="pill-link" href="/">Family view</a>
+  </header>
+
+  <section class="big" id="status" aria-live="polite">
+    <div class="answer">
+      <span class="orb" aria-hidden="true">
+        <svg class="i o-hear"><use href="#i-ear"/></svg>
+        <svg class="i o-speak"><use href="#i-speaker"/></svg>
+        <svg class="i o-ask"><use href="#i-q"/></svg>
+        <svg class="i o-off"><use href="#i-off"/></svg>
+        <svg class="i o-quiet"><use href="#i-quiet"/></svg>
+        <svg class="i o-wait"><use href="#i-dots"/></svg>
+      </span>
+      <div>
+        <h1 id="statusTitle">Waiting for Kin…</h1>
+        <p id="statusText">Start Kin, then double-tap the band.</p>
+      </div>
+    </div>
+    <div class="level"><small>Sound at the band</small><div class="meter" role="presentation"><div id="meter"></div></div></div>
   </section>
 
-  <section class="card">
-    <h2>Last thing Kin heard</h2>
+  <section class="card heard">
+    <h2><span class="ico" aria-hidden="true"><svg class="i"><use href="#i-quote"/></svg></span>Last thing Kin heard</h2>
     <div id="nowWho"></div>
     <div id="now" class="muted">Nothing yet. Say something near the band.</div>
   </section>
 
-  <section class="card">
-    <h2>Conversation</h2>
-    <div id="feed"><div class="muted">Nothing yet.</div></div>
-  </section>
+  <div class="grid">
+    <section class="card">
+      <h2><span class="ico" aria-hidden="true"><svg class="i"><use href="#i-list"/></svg></span>Conversation</h2>
+      <div id="feed"><div class="muted">Nothing yet.</div></div>
+    </section>
 
-  <section class="card">
-    <h2>Teach Kin a voice</h2>
-    <p class="muted" style="margin:0 0 12px">Optional. Kin also learns voices by itself, but 10 seconds here makes it reliable right away.
-      The person talks normally near the band (read anything out loud) until the countdown ends.</p>
-    <form id="enrollForm" style="flex-wrap:wrap">
-      <input id="enrollName" placeholder="Name, e.g. Grandpa Joe or Sarah" autocomplete="off">
-      <select id="enrollRole" style="font:inherit;font-size:18px;padding:14px;border-radius:14px;border:1px solid var(--line);background:var(--bg);color:var(--ink)">
-        <option value="wearer">wears the band</option><option value="daughter">daughter</option><option value="son">son</option>
-        <option value="grandchild">grandchild</option><option value="friend">friend</option><option value="caregiver">caregiver</option>
-      </select>
-      <button id="enrollBtn">🎙 Record 10 seconds</button>
-    </form>
-    <div id="enrollState" style="font-size:24px;font-weight:700;margin-top:12px"></div>
-    <div id="voices" class="muted" style="margin-top:10px"></div>
-  </section>
+    <div class="col">
+      <section class="card">
+        <h2><span class="ico" aria-hidden="true"><svg class="i"><use href="#i-people"/></svg></span>Teach Kin a voice</h2>
+        <p class="lead">Optional. Kin learns voices by itself, but 10 seconds here makes it reliable right away.
+          The person talks normally near the band (read anything out loud) until the countdown ends.</p>
+        <form id="enrollForm">
+          <input id="enrollName" placeholder="Name, e.g. Grandpa Joe or Sarah" autocomplete="off" aria-label="Name">
+          <select id="enrollRole" aria-label="Who they are">
+            <option value="wearer">wears the band</option><option value="daughter">daughter</option><option value="son">son</option>
+            <option value="grandchild">grandchild</option><option value="friend">friend</option><option value="caregiver">caregiver</option>
+          </select>
+          <button id="enrollBtn"><svg class="i" aria-hidden="true"><use href="#i-mic"/></svg>Record 10 seconds</button>
+        </form>
+        <div id="enrollState" aria-live="polite"></div>
+        <div id="voices" class="muted"></div>
+      </section>
 
-  <section class="card">
-    <details>
-      <summary>Test without talking</summary>
-      <div class="row" style="margin-top:14px">
-        <button data-cmd="t">Pretend double-tap</button>
-        <button data-cmd="r" class="alt">Remind me now</button>
-        <button data-cmd="f" class="alt">Pretend a fall</button>
-      </div>
-      <form id="askForm"><input id="askInput" placeholder="Ask Kin something…" autocomplete="off"><button>Ask</button></form>
-    </details>
-    <p class="muted" style="margin:16px 0 0">Family view: <a href="/">open the dashboard</a></p>
-  </section>
+      <section class="card">
+        <details>
+          <summary><span class="ico" aria-hidden="true"><svg class="i"><use href="#i-flask"/></svg></span>Test without talking</summary>
+          <div class="row" style="margin-top:1rem">
+            <button data-cmd="t">Pretend double-tap</button>
+            <button data-cmd="r" class="alt">Remind me now</button>
+            <button data-cmd="f" class="alt">Pretend a fall</button>
+          </div>
+          <form id="askForm"><input id="askInput" placeholder="Ask Kin something…" autocomplete="off" aria-label="Question for Kin"><button>Ask</button></form>
+        </details>
+      </section>
+    </div>
+  </div>
 </main>
 
 <script>
 const $ = (id) => document.getElementById(id);
-let wearer = "You", lastHeard = 0, mic = { arriving: false }, mode = "listen", band = "", speaking = false;
+let primed = false, wearer = "You", lastHeard = 0, mic = null, mode = "listen", band = "", speaking = false;
+
+function look(cls, icon) { const b = $("status"); b.className = "big" + (cls ? " " + cls : ""); b.dataset.icon = icon; }
 
 function setStatus() {
-  const box = $("status"), t = $("statusTitle"), p = $("statusText");
+  const t = $("statusTitle"), p = $("statusText");
   const ago = lastHeard ? Math.round((Date.now() - lastHeard) / 1000) : null;
-  if (!band || band === "disconnected") { box.className = "big bad"; t.textContent = "Band not connected"; p.textContent = "Double-tap the band, then restart Kin."; return; }
-  if (speaking) { box.className = "big ok"; t.textContent = "🔊 Kin is talking"; p.textContent = "Listen to your laptop speaker."; return; }
-  if (mode === "ask") { box.className = "big ok"; t.textContent = "👂 Ask your question now"; p.textContent = "Kin is waiting for your question."; return; }
-  if (!mic.arriving) { box.className = "big bad"; t.textContent = "No sound from the band"; p.textContent = "Is the band on? The light should be solid blue."; return; }
-  box.className = "big ok";
-  t.textContent = "✅ Kin can hear";
+  if (!band || band === "disconnected") { look("bad", "off"); t.textContent = "Band not connected"; p.textContent = "Double-tap the band, then restart Kin."; return; }
+  if (speaking) { look("speak", "speak"); t.textContent = "Kin is talking"; p.textContent = "Listen to your laptop speaker."; return; }
+  if (mode === "ask") { look("ok", "ask"); t.textContent = "Ask your question now"; p.textContent = "Kin is waiting for your question."; return; }
+  if (!mic) { look("", "wait"); t.textContent = "Checking the band…"; p.textContent = "One moment."; return; }
+  if (!mic.arriving) { look("bad", "quiet"); t.textContent = "No sound from the band"; p.textContent = "Is the band on? The light should be solid blue."; return; }
+  look("ok", "hear");
+  t.textContent = "Kin can hear you";
   p.textContent = ago === null ? "Say something and it will show up below." :
                   ago < 60 ? `Last words heard ${ago} seconds ago.` : `Last words heard ${Math.round(ago / 60)} min ago.`;
 }
 
 function who(row) {
-  if (row.speaker === "kin") return ["🔊 Kin said out loud", "kin"];
-  if (row.speaker === "wearer") return ["👤 " + wearer + " (wearing the band)", "you"];
-  return ["👥 " + (row.name || "Someone else"), "other"];
+  if (row.speaker === "kin") return ["Kin said out loud", "kin"];
+  if (row.speaker === "wearer") return [wearer + " (wearing the band)", "you"];
+  return [row.name || "Someone else", "other"];
 }
 
 function add(row) {
@@ -116,10 +251,12 @@ function add(row) {
   if (row.speaker !== "kin") { lastHeard = Date.now(); $("nowWho").textContent = label; $("now").textContent = row.text; $("now").classList.remove("muted"); }
   const feed = $("feed");
   if (feed.firstElementChild && feed.firstElementChild.classList.contains("muted")) feed.innerHTML = "";
-  const d = document.createElement("div"); d.className = "line " + cls;
+  const d = document.createElement("div"); d.className = "line " + cls + (primed ? " new" : "");
+  const dot = document.createElement("span"); dot.className = "dot"; dot.setAttribute("aria-hidden", "true");
+  const body = document.createElement("div");
   const w = document.createElement("div"); w.className = "who " + cls; w.textContent = label;
-  const x = document.createElement("div"); x.textContent = row.text;
-  d.append(w, x); feed.prepend(d);
+  const x = document.createElement("div"); x.className = "said"; x.textContent = row.text;
+  body.append(w, x); d.append(dot, body); feed.prepend(d);
   while (feed.children.length > 12) feed.lastChild.remove();
   setStatus();
 }
@@ -136,19 +273,32 @@ function connect() {
       $("meter").style.width = pct + "%"; setStatus();
     } else if (e.table === "status") { mode = e.row.mode || mode; band = e.row.band || band; setStatus(); }
     else if (e.table === "enroll" && e.row.state !== "recording") { clearInterval(countdown);
-      $("enrollState").textContent = (e.row.state === "done" ? "✅ " : "⚠️ ") + e.row.text; loadVoices(); }
+      $("enrollState").className = e.row.state === "done" ? "done" : "fail";
+      $("enrollState").textContent = e.row.text; loadVoices(); }
   };
-  ws.onclose = () => { band = ""; $("statusTitle").textContent = "Kin is not running"; $("status").className = "big bad"; setTimeout(connect, 1500); };
+  ws.onclose = () => { band = ""; look("bad", "off"); $("statusTitle").textContent = "Kin is not running"; $("statusText").textContent = "Start Kin on this laptop. This page reconnects by itself."; setTimeout(connect, 1500); };
 }
 
+function chip(v) {
+  const c = document.createElement("span"); c.className = "chip";
+  const b = document.createElement("b"); b.textContent = String(v.name).trim().charAt(0).toUpperCase();
+  const n = document.createElement("span"); n.textContent = v.name;
+  c.append(b, n);
+  if (v.role) { const r = document.createElement("small"); r.textContent = v.role === "wearer" ? "wears the band" : v.role; c.append(r); }
+  return c;
+}
 async function loadVoices() {
   try {
     const v = (await (await fetch("/api/voices")).json()).voices || [];
     const named = v.filter((x) => x.name);
-    $("voices").textContent = named.length
-      ? "Voices Kin knows: " + named.map((x) => x.name + (x.role ? " (" + (x.role === "wearer" ? "wears the band" : x.role) + ")" : "")).join(", ")
-        + (v.length > named.length ? ` · plus ${v.length - named.length} voice(s) it heard but can't name yet` : "")
-      : (v.length ? `Kin has heard ${v.length} voice(s) but doesn't know their names yet.` : "Kin doesn't know any voices yet.");
+    const box = $("voices"); box.replaceChildren();
+    if (named.length) {
+      const h = document.createElement("div"); h.textContent = "Voices Kin knows";
+      const chips = document.createElement("div"); chips.className = "chips"; named.forEach((x) => chips.append(chip(x)));
+      box.append(h, chips);
+      if (v.length > named.length) { const m = document.createElement("div"); m.style.marginTop = ".6rem";
+        m.textContent = `Plus ${v.length - named.length} voice${v.length - named.length === 1 ? "" : "s"} it heard but can't name yet.`; box.append(m); }
+    } else box.textContent = v.length ? `Kin has heard ${v.length} voice${v.length === 1 ? "" : "s"} but doesn't know their names yet.` : "Kin doesn't know any voices yet.";
   } catch (e) {}
 }
 let countdown = null;
@@ -158,8 +308,9 @@ $("enrollForm").onsubmit = async (e) => {
   if (!name) { $("enrollName").focus(); return; }
   await send("enroll " + role + " " + name);
   let left = 10; clearInterval(countdown);
-  $("enrollState").textContent = `🎙 ${name}: keep talking… ${left}`;
-  countdown = setInterval(() => { left--; if (left > 0) $("enrollState").textContent = `🎙 ${name}: keep talking… ${left}`;
+  $("enrollState").className = "";
+  $("enrollState").textContent = `${name}: keep talking… ${left}`;
+  countdown = setInterval(() => { left--; if (left > 0) $("enrollState").textContent = `${name}: keep talking… ${left}`;
                                   else { clearInterval(countdown); $("enrollState").textContent = "Saving…"; } }, 1000);
 };
 
@@ -170,6 +321,7 @@ async function init() {
     band = (s.status && s.status.band) || "";
     s.transcript.slice(-12).forEach(add);
   } catch (e) {}
+  primed = true;
   setStatus(); connect(); setInterval(setStatus, 5000); loadVoices(); setInterval(loadVoices, 15000);
 }
 async function send(cmd) {

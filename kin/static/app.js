@@ -5,12 +5,17 @@
   const $ = (id) => document.getElementById(id);
   let state = { people: [], todos: [], items: [], alerts: [], purchases: [], transcript: [], status: {}, config: {} };
   let live = false;
+  let everLive = false;      // first load: say 'Connecting…', not 'Can't reach Kin'
+  let lostAt = 0;
   let loaded = false;
   const acked = new Set();          // alerts acknowledged in this browser (server also stores seen=1)
   const seenKeys = new Map();       // list id -> Set of row keys already shown (to highlight new rows)
   const openFolds = new Set();      // small-talk runs the viewer expanded
   let convoOpen = false;
   let convoPrimed = false;          // chat already drawn once since it was opened
+  const KIN_FEW = 4;                // Kin replies shown before "Show more"
+  let kinMore = false;
+  let summary = null;               // {text, ts} from /api/summary
 
   // ---------- small helpers ----------
   function el(tag, cls, text) {
@@ -32,6 +37,15 @@
   function clock(ts) { return new Date(ts * 1000).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
   function money(c) { return "$" + (Number(c || 0) / 100).toFixed(2); }
   function cap(s) { s = String(s || "").trim(); return s.charAt(0).toUpperCase() + s.slice(1); }
+  function icon(id, cls) {
+    const NS = "http://www.w3.org/2000/svg";
+    const wrap = el("span", cls);
+    wrap.setAttribute("aria-hidden", "true");
+    const svg = document.createElementNS(NS, "svg"); svg.setAttribute("class", "i");
+    const use = document.createElementNS(NS, "use"); use.setAttribute("href", "#" + id);
+    svg.appendChild(use); wrap.appendChild(svg);
+    return wrap;
+  }
   function midnight() { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime() / 1000; }
   function wearer() { return state.config.wearer || "Your loved one"; }
   function words(s) { return String(s || "").trim().split(/\s+/).filter(Boolean).length; }
@@ -122,23 +136,54 @@
     return { tone: "bad", title: cap(String(a.kind || "Alert").replace(/_/g, " ")) + at, details: text ? [text] : [] };
   }
 
+  // Alerts that mean "he may not be OK": they turn the top red and notify the family's devices.
+  const URGENT = new Set(["scam", "fall", "fall_emergency", "wander"]);
+  // A few words on what Kin did about it, for the status line and the device notification.
+  function shortAction(a, pool) {
+    if (a.kind === "scam") return kinSpokeNear(a.ts) ? "Kin warned him" : "";
+    if (a.kind === "fall") return okAfter(a, pool) ? "He tapped his band to say he's fine" : "Kin asked if he's OK";
+    if (a.kind === "fall_emergency") return "He didn't answer Kin";
+    if (a.kind === "wander") return "Call him or go look for him";
+    return "";
+  }
+  function reason(a, pool) {
+    const m = describe(a, pool);
+    if (!m) return "";
+    const s = shortAction(a, pool);
+    return m.title + (s ? " · " + s : "");
+  }
+  let baseTitle = document.title;
+
   // ---------- 1. the top line ----------
   function renderHero() {
     const hero = $("hero"), title = $("hero-title"), sub = $("hero-sub"), det = $("hero-details"), ack = $("hero-ack");
     const name = wearer();
     $("wearer-top").textContent = name;
-    document.title = "Kin · " + name;
+    baseTitle = "Kin · " + name;
+    if (!flashTimer) document.title = baseTitle;
 
     const open = state.alerts.filter(isOpen);
+    const rank = (x) => (URGENT.has(x.a.kind) ? 0 : x.m.tone === "bad" ? 1 : 2);
     const msgs = open.map((a) => ({ a, m: describe(a, open) })).filter((x) => x.m)
-      .sort((x, y) => (x.m.tone === y.m.tone ? y.a.ts - x.a.ts : x.m.tone === "bad" ? -1 : 1));
+      .sort((x, y) => (rank(x) === rank(y) ? y.a.ts - x.a.ts : rank(x) - rank(y)));
 
     sub.replaceChildren(); det.replaceChildren();
     if (msgs.length) {
-      const top = msgs[0].m;
-      hero.className = "hero " + (top.tone === "bad" ? "alarm" : "warn");
-      title.textContent = top.title;
-      sub.hidden = true;
+      const top = msgs[0].m, topA = msgs[0].a;
+      if (URGENT.has(topA.kind)) {
+        hero.className = "hero alarm";
+        title.textContent = name + " may not be OK";
+        const why = el("span", "why", top.title);
+        sub.appendChild(why);
+        const s = shortAction(topA, open);
+        if (s) { sub.appendChild(el("span", "sep", "·")); sub.appendChild(el("span", null, s)); }
+        sub.hidden = false;
+        if (s) top.details = top.details.filter((d) => !d.toLowerCase().startsWith(s.toLowerCase()));   // said already
+      } else {
+        hero.className = "hero " + (top.tone === "bad" ? "alarm" : "warn");
+        title.textContent = top.title;
+        sub.hidden = true;
+      }
       top.details.forEach((d) => det.appendChild(el("li", null, d)));
       msgs.slice(1).forEach((x) => det.appendChild(el("li", "also-alert", "Also: " + x.m.title)));
       det.hidden = det.children.length === 0;
@@ -158,7 +203,11 @@
     const heard = lastHeard();
     const heardText = heard ? "Last heard " + ago(heard) : "Nothing heard yet today";
     const parts = [];
-    if (!live) {
+    if (!live && (!everLive || Date.now() - lostAt < 8000)) {
+      hero.className = "hero calm";               // connecting, or a quick restart: no alarm
+      title.textContent = "Connecting to Kin…";
+      parts.push(name);
+    } else if (!live) {
       hero.className = "hero off";
       title.textContent = "Can't reach Kin right now";
       parts.push("Trying to reconnect…");
@@ -208,10 +257,11 @@
     const seenToday = people.filter((p) => (p.last_seen || 0) >= today);
     const nodes = seenToday.map((p) => {
       const li = el("li");
+      li.appendChild(el("span", "avatar", String(p.name || "?").trim().charAt(0).toUpperCase()));
       const body = el("div", "grow");
       const head = el("div", "big");
       add(head, el("strong", null, p.name));
-      if (p.relationship) add(head, " (" + his(p.relationship) + ")");
+      if (p.relationship) add(head, " ", el("span", "rel", his(p.relationship)));
       body.appendChild(head);
       body.appendChild(el("div", "when", "Talked with him " + ago(p.last_seen)));
       const facts = (p.facts || []).slice(0, 4);
@@ -265,6 +315,7 @@
       const b = el("button", "done", "Done");
       b.type = "button";
       b.title = "Mark as done";
+      b.setAttribute("aria-label", "Mark as done: " + text);
       b.onclick = () => { b.disabled = true; api("POST", "/api/todo/" + Number(t.id) + "/done"); };
       li.appendChild(b);
       return fresh("todos", t.id, li);
@@ -289,7 +340,7 @@
         img.onerror = () => img.remove();
         img.onclick = () => img.classList.toggle("zoom");
         li.appendChild(img);
-      }
+      } else li.appendChild(icon("i-key", "place"));
       const body = el("div", "grow");
       const head = el("div", "big");
       add(head, el("strong", null, cap(i.item) + ":"), " " + String(i.location || "").replace(/\.$/, ""));
@@ -321,7 +372,16 @@
       }
       return best ? WHY[best.a.kind] : "";
     };
-    const nodes = out.slice(-5).reverse().map(({ l, q }) => {
+    // Newest first; the latest few, the rest behind "Show more".
+    const all = out.reverse();
+    const shown = kinMore ? all.slice(0, 20) : all.slice(0, KIN_FEW);
+    const more = $("kinsaid-more");
+    more.hidden = all.length <= KIN_FEW;
+    more.textContent = kinMore ? "Show fewer" : "Show " + (Math.min(all.length, 20) - KIN_FEW) + " more";
+    more.setAttribute("aria-expanded", String(kinMore));
+    // Older replies count as already seen, so "Show more" doesn't flash them as new.
+    all.slice(shown.length).forEach(({ l }) => fresh("kinsaid", l.id, el("li")));
+    const nodes = shown.map(({ l, q }) => {
       const li = el("li");
       const body = el("div", "grow");
       if (q) body.appendChild(el("div", "q", "He asked: “" + q.text + "”"));
@@ -368,8 +428,9 @@
   }
 
   // ---------- 3. the conversation ----------
+  // Newest first: the latest line is at the top and live lines arrive there.
   function renderConvo() {
-    const lines = state.transcript.filter((l) => !isFiller(l));
+    const lines = state.transcript.filter((l) => !isFiller(l)).reverse();
     const btn = $("convo-toggle");
     btn.textContent = convoOpen ? "Hide the conversation"
       : lines.length ? "See what was said today (" + lines.length + (lines.length === 1 ? " line)" : " lines)")
@@ -388,7 +449,7 @@
         let j = i;
         while (j < lines.length && Number(lines[j].importance) === 0) j++;
         const run = lines.slice(i, j);
-        const runKey = String(run[0].id);
+        const runKey = String(run[run.length - 1].id);   // the run's oldest line: stays put as the run grows
         if (run.length >= 2 && !openFolds.has(runKey)) {
           const f = el("button", "fold", "+ " + run.length + " lines of small talk");
           f.type = "button";
@@ -404,11 +465,11 @@
       const cls = l.speaker === "kin" ? "kin" : l.speaker === "wearer" ? "me" : "them";
       const li = el("li", "msg " + cls);
       // Name and time once per turn, not on every bubble.
-      if (who !== lastWho || l.ts - lastTs > 120) li.appendChild(el("span", "who", who + " · " + clock(l.ts)));
+      if (who !== lastWho || Math.abs(l.ts - lastTs) > 120) li.appendChild(el("span", "who", who + " · " + clock(l.ts)));
       li.appendChild(el("div", "bubble", l.text));
       if (l.category === "money_safety" && Number(l.importance) >= 1) {
         li.classList.add("danger");
-        li.appendChild(el("span", "flag", "⚠ Kin flagged this as a possible scam"));
+        li.appendChild(el("span", "flag", "Kin flagged this as a possible scam"));
       }
       // Only lines that arrive while the chat is open slide in.
       if (convoPrimed) nodes.push(fresh("convo", l.id, li));
@@ -420,8 +481,24 @@
     convoPrimed = true;
   }
 
+  // ---------- today so far ----------
+  function renderSummary() {
+    const t = $("summary-text"), w = $("summary-when");
+    const text = summary && String(summary.text || "").trim();
+    t.textContent = text || "Kin is putting together today's summary…";
+    t.classList.toggle("is-empty", !text);
+    w.hidden = !(text && summary.ts);
+    if (!w.hidden) w.textContent = "Updated " + ago(summary.ts);
+  }
+  async function loadSummary() {
+    try {
+      const r = await fetch("/api/summary", { cache: "no-store" });
+      if (r.ok) { summary = await r.json(); renderSummary(); }
+    } catch (e) { console.warn("summary failed", e); }
+  }
+
   function renderAll() {
-    renderHero(); renderPeople(); renderTodos(); renderItems(); renderKinSaid();
+    renderSummary(); renderHero(); renderPeople(); renderTodos(); renderItems(); renderKinSaid();
     renderPurchases(); renderEarlier(); renderConvo();
     loaded = true;
   }
@@ -442,16 +519,105 @@
     try {
       const r = await fetch("/api/snapshot", { cache: "no-store" });
       state = Object.assign(state, await r.json());
+      // Alerts already there when the page opens aren't news; anything newer that the live feed missed is.
+      for (const a of state.alerts) { if (!loaded) notified.add(a.id); else announce(a); }
       renderAll();
     } catch (e) { console.warn("snapshot failed", e); }
   }
   let refreshTimer = null;
   function scheduleRefresh() { clearTimeout(refreshTimer); refreshTimer = setTimeout(refresh, 150); }
 
+  // ---------- device alerts ----------
+  // Browser notifications need permission asked from a click; the choice is remembered on this device.
+  const canNotify = "Notification" in window;
+  const notified = new Set();          // alert ids already announced on this page
+  let alertsOn = false;
+  try { alertsOn = localStorage.getItem("kin-alerts") === "on"; } catch (e) { /* storage blocked */ }
+  let audio = null;
+  function unlockAudio() {
+    try {
+      const AC = window.AudioContext || window.webkitAudioContext;
+      if (!AC) return;
+      if (!audio) audio = new AC();
+      if (audio.state === "suspended") audio.resume();
+    } catch (e) { audio = null; }
+  }
+  function chime() {       // two soft notes, about a second long
+    try {
+      if (!audio) unlockAudio();
+      if (!audio || audio.state !== "running") return;
+      const t0 = audio.currentTime;
+      [[660, 0], [880, .28]].forEach(([f, d]) => {
+        const o = audio.createOscillator(), g = audio.createGain();
+        o.type = "sine"; o.frequency.value = f;
+        g.gain.setValueAtTime(0, t0 + d);
+        g.gain.linearRampToValueAtTime(.18, t0 + d + .04);
+        g.gain.exponentialRampToValueAtTime(.001, t0 + d + .7);
+        o.connect(g).connect(audio.destination);
+        o.start(t0 + d); o.stop(t0 + d + .75);
+      });
+    } catch (e) { /* no sound, that's fine */ }
+  }
+  let flashTimer = null;
+  function flashTitle() {
+    if (!document.hidden || flashTimer) return;
+    let on = false;
+    flashTimer = setInterval(() => { on = !on; document.title = on ? "⚠ Kin alert" : baseTitle; }, 1000);
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && flashTimer) { clearInterval(flashTimer); flashTimer = null; document.title = baseTitle; }
+  });
+  // Notifications blocked by the browser: the button still turns on the sound, so it never looks dead.
+  function alertsActive() { return alertsOn && canNotify && Notification.permission !== "default"; }
+  function renderAlertsBtn() {
+    const b = $("alerts-btn");
+    if (!b) return;
+    if (!canNotify) { b.hidden = true; return; }
+    const perm = Notification.permission, on = alertsActive();
+    b.hidden = false;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+    $("alerts-label").textContent = perm === "denied" ? (on ? "Sound alerts on" : "Turn on sound alerts")
+      : on ? "Alerts on" : "Turn on alerts";
+    b.title = perm === "denied"
+      ? "This browser blocks notifications for this page, so Kin will play a sound here instead. Click to " + (on ? "turn it off." : "turn it on.")
+      : on ? "This device will alert you if he may not be OK. Click to turn off."
+      : "Get a notification on this device if he may not be OK";
+  }
+  async function toggleAlerts() {
+    unlockAudio();
+    if (!canNotify) return;
+    if (alertsActive()) alertsOn = false;
+    else {
+      let perm = Notification.permission;
+      if (perm === "default") { try { perm = await Notification.requestPermission(); } catch (e) { perm = "denied"; } }
+      alertsOn = perm !== "default";      // granted: notifications + sound; denied: sound only
+    }
+    try { localStorage.setItem("kin-alerts", alertsOn ? "on" : "off"); } catch (e) { /* storage blocked */ }
+    renderAlertsBtn();
+    if (alertsOn) chime();                // so they hear what an alert sounds like
+  }
+  function announce(a) {
+    if (!URGENT.has(a.kind) || Number(a.seen) || acked.has(a.id) || notified.has(a.id)) return;
+    notified.add(a.id);
+    flashTitle();
+    if (!alertsActive()) return;
+    chime();
+    if (!canNotify || Notification.permission !== "granted") return;
+    try {
+      const n = new Notification(wearer() + " may not be OK", {
+        body: reason(a, state.alerts.concat([a])), tag: "kin-" + a.id, requireInteraction: true, icon: "/static/kin-mark.svg",
+      });
+      n.onclick = () => { window.focus(); n.close(); };
+    } catch (e) { /* e.g. mobile browsers that only allow notifications from a service worker */ }
+  }
+
   function onEvent(ev) {
     const t = ev.table, row = ev.row || {};
+    if (t === "alerts" && row.id != null) announce(row);
     if (t === "status") { state.status = Object.assign({}, state.status, row); renderHero(); return; }
     if (t === "interim" || t === "mic") return;
+    if (t === "summary") { summary = row; renderSummary(); return; }
     if (t === "transcript" && row.speaker === "kin" && words(row.text) > 1) showSpeaking(row.text);
     scheduleRefresh();
   }
@@ -459,16 +625,20 @@
   let backoff = 500;
   function connect() {
     const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
-    ws.onopen = () => { backoff = 500; live = true; refresh(); };
+    ws.onopen = () => { backoff = 500; live = true; everLive = true; lostAt = 0; refresh(); loadSummary(); };
     ws.onmessage = (m) => { try { onEvent(JSON.parse(m.data)); } catch (e) { console.warn(e); } };
     ws.onclose = () => {
-      live = false; renderHero();
+      if (live) lostAt = Date.now();
+      live = false; renderHero(); setTimeout(renderHero, 8500);
       setTimeout(connect, backoff);
       backoff = Math.min(backoff * 2, 8000);
     };
   }
 
   // ---------- controls ----------
+  if ($("alerts-btn")) $("alerts-btn").addEventListener("click", toggleAlerts);
+  renderAlertsBtn();
+  $("kinsaid-more").addEventListener("click", () => { kinMore = !kinMore; renderKinSaid(); });
   $("convo-toggle").addEventListener("click", () => { convoOpen = !convoOpen; renderConvo(); });
 
   function applyTheme(t) {
@@ -493,7 +663,12 @@
     $("p-name").closest("details").open = false;
   });
 
-  function tick() { $("clock").textContent = new Date().toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }); }
+  function tick() {
+    const d = new Date();
+    $("clock").textContent = d.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+    const td = $("today-date");
+    if (td) td.textContent = d.toLocaleDateString([], { weekday: "long", month: "long", day: "numeric" });
+  }
   setInterval(() => { if (loaded) renderAll(); }, 30000);    // keep "x min ago" fresh
   setInterval(tick, 5000); tick();
   renderHero();
