@@ -8,3 +8,4 @@ snapshots/
 *.db
 voiceprints/
 kin.db.bak
+kin/_reload.py
