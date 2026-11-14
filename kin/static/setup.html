@@ -77,7 +77,7 @@
 
   <section class="step" id="stepVoice">
     <h2><span class="num">2</span>Their voice</h2>
-    <p class="hint">10 seconds near the band so Kin always knows it's them. Kin also learns by itself, this just makes it reliable from the start.</p>
+    <p class="hint">20 seconds near the band so Kin always knows it's them. Kin also learns by itself, this just makes it reliable from the start.</p>
     <div class="body">
       <div id="voiceKnown" hidden style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
         <span class="state ok" id="voiceKnownText"></span>
@@ -117,17 +117,17 @@
 <template id="recorderTpl">
   <div class="tabs"><button type="button" class="on" data-mode="script">Read a script</button><button type="button" data-mode="free">Talk freely</button></div>
   <div class="script"><small class="scriptLabel">Read this out loud, at a normal pace:</small><span class="scriptText"></span></div>
-  <div class="rec"><button type="button" class="recBtn">Record 10 seconds</button><span class="ring"></span><span class="state"></span></div>
+  <div class="rec"><button type="button" class="recBtn">Record 20 seconds</button><span class="ring"></span><span class="state"></span></div>
 </template>
 
 <script>
 const $ = (id) => document.getElementById(id);
 let wearer = "Grandpa Joe";
 const SCRIPTS = {
-  wearer: (n) => `Hi, this is ${n}. I'm reading this so my wristband can learn my voice. This morning I had coffee by the window, and later I'd like to call my family and take a short walk. I usually keep my keys by the door and my glasses on the kitchen table.`,
+  wearer: (n) => `Hi, this is ${n}. I'm reading this so my wristband can learn my voice. This morning I had coffee by the window and read the newspaper. Later I'd like to call my family, take a short walk around the block, and pick up a few things from the store, maybe some bread, eggs and fruit. I usually keep my keys by the front door and my glasses on the kitchen table. My favourite thing on a quiet afternoon is listening to music and talking with the people I love.`,
   family: (n, r) => `Hi, this is ${n}${r ? `, ${wearer}'s ${r}` : ""}. I'm recording my voice so the wristband can tell ${wearer} who's visiting. I usually come by on weekends, and I love hearing how the week went.`,
 };
-const FREE = "Just talk normally for 10 seconds: about your morning, your family, or your favourite meal. Anything works.";
+const FREE = "Just talk normally for 20 seconds: about your morning, your family, or your favourite meal. Anything works.";
 
 function recorder(el) {
   el.append($("recorderTpl").content.cloneNode(true));
@@ -151,7 +151,7 @@ function recorder(el) {
                                             body: JSON.stringify({ cmd: `enroll ${role} ${name}` }) });
     if (!r.ok) { state.className = "state bad"; state.textContent = "Kin isn't running."; return; }
     btn.disabled = true; el.classList.add("recording"); state.className = "state";
-    let left = 10; state.textContent = `Recording… ${left}`;
+    let left = 20; state.textContent = `Recording… ${left}`;
     el._timer = setInterval(() => { left--; state.textContent = left > 0 ? `Recording… ${left}` : "Saving…";
                                     if (left <= 0) clearInterval(el._timer); }, 1000);
     el._pending = name;

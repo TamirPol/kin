@@ -352,7 +352,7 @@ class Kin:
                 log.info("Back to listening (no question)")
                 self.publish_status()
 
-    async def enroll(self, name: str, role: str, seconds: float = 10.0):
+    async def enroll(self, name: str, role: str, seconds: float = 20.0):
         """Onboarding: record `seconds` of this person talking near the band and save their voiceprint."""
         if self._enrolling:
             return
@@ -437,7 +437,7 @@ class Kin:
             self._ask_started = now
             log.info("MODE: ask (double-tap)")
             self.publish_status(note="Listening for your question")
-            await self.router.speak("Yes?")
+            await self.say_yes()
         else:
             self.mode = "listen"
             self.publish_status()
@@ -569,8 +569,8 @@ class Kin:
             prev = self._dg_decision.get(dg)
             if prev:
                 return prev
-            is_wearer = loud_label == "wearer" and not wearer_known
-            why = ["short clip, unknown voice"]
+            is_wearer = True                                  # too short to check: assume the wearer (their voice
+            why = ["short clip, assumed the wearer"]          # scores ~0.7 when checkable; others are checked properly)
         log.info("VOICE %s -> %s", ", ".join(why), "you (wearer)" if is_wearer else "someone else")
 
         if fresh and dg:                                      # remember this voice's decision for short lines
@@ -773,6 +773,21 @@ class Kin:
             await self.router.speak(r.get("say") or "This sounds like a scam. Please don't send any money.")
 
     # ------------------------------------------------------------------ ask mode end
+    async def say_yes(self):
+        """'Yes?' right away: pre-rendered at startup, played directly (no 2-4 s TTS round trip)."""
+        pcm = getattr(self, "_yes_pcm", None)
+        if not pcm or isinstance(self.tts, voice.SayTTS):
+            await self.router.speak("Yes?")
+            return
+        self.speaking = True
+        memory.add_line("kin", "Yes?", name="Kin")
+        log.info("KIN SAYS: Yes?")
+        try:
+            await asyncio.to_thread(self.speaker.play_pcm, pcm, 24000)
+            await asyncio.sleep(0.4)                      # let the buffered audio finish
+        finally:
+            self.done_speaking()
+
     def speaker_stop(self):
         try:
             self.speaker.stop()
@@ -947,6 +962,10 @@ class Kin:
         await runner.add_workers(self.task)
         run_task = asyncio.create_task(runner.run())
         await asyncio.sleep(0.5)
+        try:                                           # "Yes?" in Kin's voice, ready to play instantly
+            self._yes_pcm = await asyncio.wait_for(asyncio.to_thread(voice.synth_pcm, "Yes?"), 12)
+        except Exception:
+            self._yes_pcm = None
         try:                                           # warm the cleanup model so the first sentence isn't slow
             from . import cleanup
             asyncio.create_task(asyncio.to_thread(cleanup.clean, "hello there my friend", []))

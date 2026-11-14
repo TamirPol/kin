@@ -189,7 +189,7 @@ class KinRouter(FrameProcessor):
                 if rest:
                     text = rest
                 else:
-                    await self.speak("Yes?")
+                    await self.app.say_yes()
                     return
         if self.app.mode == "ask" and speaker != "wearer" and not woke and (name or self.app.answered_once):
             # confidently someone else (e.g. Sarah), or a follow-up that doesn't sound like the wearer:
@@ -443,6 +443,30 @@ def system_prompt() -> str:
 
 
 # --------------------------------------------------------------------------- voice out
+def synth_pcm(text: str) -> bytes | None:
+    """Pre-render a short phrase (e.g. "Yes?") as 24 kHz 16-bit mono PCM in Kin's current voice, so it can be
+    played instantly instead of waiting ~2-4 s for streaming TTS. None if it can't be made."""
+    want = os.environ.get("KIN_VOICE", "").lower()
+    try:
+        if config.ELEVENLABS_API_KEY and want in ("", "elevenlabs"):
+            import json as _json, urllib.request as _u
+            req = _u.Request(f"https://api.elevenlabs.io/v1/text-to-speech/{config.ELEVENLABS_VOICE_ID}"
+                             "?output_format=pcm_24000", method="POST",
+                             data=_json.dumps({"text": text, "model_id": "eleven_flash_v2_5"}).encode(),
+                             headers={"xi-api-key": config.ELEVENLABS_API_KEY, "Content-Type": "application/json"})
+            with _u.urlopen(req, timeout=10) as r:
+                return r.read()
+        if config.OPENAI_API_KEY and want in ("", "openai", "elevenlabs"):
+            from openai import OpenAI
+            r = OpenAI(api_key=config.OPENAI_API_KEY, timeout=10).audio.speech.create(
+                model="gpt-4o-mini-tts", voice=os.environ.get("KIN_OPENAI_VOICE", "sage"), input=text,
+                response_format="pcm", instructions="Warm, calm, gentle.")
+            return r.read() if hasattr(r, "read") else r.content
+    except Exception as e:
+        log.info("could not pre-render %r: %s", text, e)
+    return None
+
+
 def _saved_speed() -> float:
     try:
         from . import settings
@@ -533,6 +557,11 @@ class Speaker(FrameProcessor):
                 memory.add_line("kin", text, name="Kin")
             self.app.done_speaking()
         await self.push_frame(frame, direction)
+
+    def play_pcm(self, pcm: bytes, rate: int = 24000):
+        """Play pre-rendered audio right away (blocking; call from a thread)."""
+        from types import SimpleNamespace
+        self._play(SimpleNamespace(audio=pcm, sample_rate=rate, num_channels=1))
 
     def stop(self):
         """Silence now: abort whatever audio is still buffered."""
