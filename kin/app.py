@@ -52,7 +52,7 @@ class Kin:
         self.args = args
         self.mode = "listen"
         self.speaking = False
-        self.ask_pause = 1.8          # seconds of quiet that end a question
+        self.ask_pause = 1.2          # quiet that ends a question (reset while Deepgram still hears words)
         self.has_diarization = bool(config.DEEPGRAM_API_KEY)
         self.band = None
         self.band_state = "disconnected"
@@ -101,6 +101,22 @@ class Kin:
         self.task = PipelineWorker(Pipeline(parts),
                                  params=PipelineParams(audio_in_sample_rate=16000, audio_out_sample_rate=24000),
                                  cancel_on_idle_timeout=False)
+
+    def knows_wearer_voice(self) -> bool:
+        try:
+            from . import voiceprint
+            return bool(voiceprint.wearer())
+        except Exception:
+            return False
+
+    def new_conversation(self):
+        """A fresh conversation: forget earlier Q&A (stale answers make the AI repeat its own mistakes).
+        Recent talk is still in the system prompt's memory, so follow-ups keep their context."""
+        if self.ctx:
+            try:
+                self.ctx.user().context.set_messages([])
+            except Exception as e:
+                log.warning("could not reset the conversation: %s", e)
 
     def refresh_system_prompt(self):
         if self.llm:                             # fresh memory in the system prompt before each question
@@ -381,6 +397,7 @@ class Kin:
             return
         if self.mode == "listen":
             self.mode = "ask"
+            self.new_conversation()
             self._ask_started = now
             log.info("MODE: ask (double-tap)")
             self.publish_status(note="Listening for your question")
@@ -470,7 +487,7 @@ class Kin:
         if dg and dg == self._wearer_dg and time.time() - self._wearer_dg_t < 20:
             vote += 1; why.append("same voice as before")
         if self.mode == "ask":
-            vote += 1.5; why.append("talking to Kin")
+            vote += 0.75; why.append("talking to Kin")
         is_wearer = vote > 0
         log.debug("speaker vote %.1f (%s) -> %s", vote, ", ".join(why), "wearer" if is_wearer else m.get("id"))
 
@@ -533,8 +550,33 @@ class Kin:
         return self._last_wearer
 
     # ------------------------------------------------------------------ listening -> memory
+    MONEY_SAY = __import__("re").compile(
+        r"(\b(send|sending|wire|transfer|give|giving|pay|paying|lend|venmo|zelle)\b.{0,25}"
+        r"(\$\s?\d|\bmoney\b|\bcash\b|\bdollars?\b|\bgift ?cards?\b|\bbank\b|\bcard number)|"
+        r"\bhow much (money|do you need)\b|\bgift ?cards?\b|\bbail\b|\bsocial security\b|"
+        r"\b(card|account|routing) number\b)", __import__("re").I)
+
+    async def money_watch(self, speaker: str, text: str):
+        """Money in a conversation (either side; on a phone call the band mostly hears the wearer):
+        warn out loud right away, alert the family, pause purchases. At most once per 2 minutes."""
+        if not self.MONEY_SAY.search(text) or time.time() - getattr(self, "_warned_scam", 0) < 120:
+            return
+        self._warned_scam = time.time()
+        from . import safety
+        who = safety.family_contact()
+        try:
+            safety.set_scam_lock("money talk in a conversation")
+        except Exception:
+            pass
+        memory.add_alert("scam", f"Money came up in a conversation with {config.WEARER_NAME} "
+                                 f"(\"{text[:80]}\"). Kin warned him and paused purchases.")
+        log.warning("SCAM: money talk: %s", text)
+        await self.router.speak(f"Hold on, that sounds like someone asking for money. Please don't send anything "
+                                f"until you've checked with {who}. I've let them know.")
+
     async def heard(self, speaker: str, text: str, name: str = ""):
         name = config.WEARER_NAME if speaker == "wearer" else name
+        await self.money_watch(speaker, text)
         if not name:
             p = memory.person_by_speaker(speaker)
             name = p["name"] if p else ""

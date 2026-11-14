@@ -230,19 +230,44 @@ def snapshot() -> dict[str, Any]:
             "purchases": purchases(), "transcript": recent_lines(limit=100)}
 
 
-def summary_for_llm(max_chars: int = 6000) -> str:
-    """A compact text version of memory for the ask-mode system prompt."""
+def summary_for_llm(max_chars: int = 9000) -> str:
+    """Everything Kin knows, as text for the AI that answers the wearer: people (with when they were last
+    seen), every saved fact (also the ones not tied to a person, e.g. a doctor's instructions), to-dos (open
+    and done today), where things are, today's safety events, and the recent conversation so follow-ups and
+    half-sentences make sense."""
+    now = time.time()
+    day = now - 16 * 3600
+    fmt = lambda ts: time.strftime("%-I:%M %p", time.localtime(ts))
     s = snapshot()
-    out = ["PEOPLE:"]
+    out = ["PEOPLE IN HIS LIFE (most recently seen first):"]
     for p in s["people"]:
+        seen = f"last heard {fmt(p['last_seen'])}" + (" today" if (p["last_seen"] or 0) > day else "") \
+            if p.get("last_seen") else ""
         facts = "; ".join(f["text"] for f in p["facts"][:8])
-        out.append(f"- {p['name']} ({p['relationship'] or 'relationship unknown'}): {facts}")
-    out.append("OPEN TODOS:")
-    out += [f"- {t['text']}" + (f" (due {t['due']})" if t['due'] else "") for t in s["todos"][:20]]
+        out.append(f"- {p['name']} ({p['relationship'] or 'relationship unknown'}; {seen}): {facts}")
+    loose = _rows("SELECT * FROM facts WHERE person_id IS NULL ORDER BY ts DESC LIMIT 25")
+    if loose:
+        out.append("OTHER THINGS HE WAS TOLD OR SAID (newest first):")
+        out += [f"- {fmt(f['ts'])}: {f['text']}" for f in loose]
+    out.append("OPEN TO-DOS:")
+    out += [f"- {t['text']}" + (f" (due {t['due']})" if t['due'] else "") for t in s["todos"][:20]] or ["- none"]
+    done = [t for t in todos(open_only=False) if t["done"] and t["ts"] > day]
+    if done:
+        out.append("DONE TODAY: " + "; ".join(t["text"] for t in done[:10]))
     out.append("WHERE THINGS ARE (latest first):")
-    out += [f"- {i['item']}: {i['location']} ({_ago(i['ts'])})" for i in s["items"][:20]]
+    out += [f"- {i['item']}: {i['location']} ({_ago(i['ts'])})" for i in s["items"][:20]] or ["- nothing noted"]
+    safety = [a for a in s["alerts"] if a["ts"] > day and a["kind"] in ("scam", "fall", "fall_ok", "fall_emergency", "wander")]
+    if safety:
+        out.append("TODAY'S SAFETY EVENTS: " + "; ".join(f"{fmt(a['ts'])} {a['kind']}" for a in safety[:8]))
+    recent = [l for l in s["transcript"] if l["ts"] > now - 15 * 60 and l.get("importance", -1) != 0][-25:]
+    if recent:
+        out.append("RECENT CONVERSATION (last 15 min, oldest first; use it to understand follow-ups and "
+                   "unfinished sentences):")
+        for l in recent:
+            who = "Kin" if l["speaker"] == "kin" else (l["name"] or ("him" if l["speaker"] == "wearer" else "someone"))
+            out.append(f"- {fmt(l['ts'])} {who}: {l['text']}")
     text = "\n".join(out)
-    return text[:max_chars]
+    return text[-max_chars:] if len(text) > max_chars else text
 
 
 def _ago(ts: float) -> str:

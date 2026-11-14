@@ -104,3 +104,20 @@ def apply() -> None:
     d = _load()
     if (d.get("wearer") or {}).get("name"):
         config.WEARER_NAME = d["wearer"]["name"]
+
+
+def speed() -> float:
+    """Kin's speaking speed (1.0 = normal), changed by voice: 'speak slower' / 'talk faster'."""
+    try:
+        return float(_load().get("voice_speed", 1.0))
+    except (TypeError, ValueError):
+        return 1.0
+
+
+def set_speed(value: float) -> float:
+    value = max(0.7, min(1.2, round(float(value), 2)))        # ElevenLabs' safe range; OpenAI allows more
+    with _lock:
+        d = _load()
+        d["voice_speed"] = value
+        _save(d)
+    return value

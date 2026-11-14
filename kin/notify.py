@@ -31,6 +31,8 @@ MESSAGES = {
     "fall_emergency": ("{w} needs a check-in now", "No answer after a possible fall. Please call or visit.", 5,
                        "sos"),
     "wander": ("{w} may have wandered off", "His band lost touch with home.", 4, "walking"),
+    "confused": ("{w} may need you", "He sounded confused or unwell. Kin is keeping him calm; please call him.", 4,
+                 "speech_balloon"),
     "spending": ("Kin blocked a purchase", "A purchase was blocked by the family limits.", 3, "credit_card"),
 }
 

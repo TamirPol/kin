@@ -28,6 +28,8 @@ from pipecat.processors.frame_processor import FrameDirection, FrameProcessor
 from . import config, memory
 
 log = logging.getLogger("kin.voice")
+import re as _re
+FILLER = _re.compile(r"^\W*(yeah|yes|yep|yup|okay|ok|mm+|hmm+|uh+|um+|uh huh|right|sure|alright|cool|wow|oh)\W*$", _re.I)
 
 
 # --------------------------------------------------------------------------- audio in
@@ -98,6 +100,9 @@ class KinRouter(FrameProcessor):
         if isinstance(frame, InterimTranscriptionFrame):
             if self.app.dashboard and frame.text.strip():   # live "hearing..." text for the test page
                 self.app.dashboard.publish({"table": "interim", "row": {"text": frame.text.strip()}})
+            if self.app.mode == "ask" and frame.text.strip() and self._ask_timer and not self._ask_timer.done():
+                self._ask_timer.cancel()                     # they're still talking: don't answer half a question
+                self._ask_timer = asyncio.create_task(self._ask_after_pause())
             return                                           # partial guesses: not stored
         if isinstance(frame, TranscriptionFrame):
             text = frame.text.strip()
@@ -124,6 +129,7 @@ class KinRouter(FrameProcessor):
             if m:                                            # "Hey Kin, where are my keys?"
                 await self.app.heard(speaker, text, name)
                 self.app.mode = "ask"
+                self.app.new_conversation()
                 self.app._ask_started = time.time()
                 self.app.publish_status(note="Listening for your question")
                 rest = m.group(1).strip()
@@ -132,7 +138,12 @@ class KinRouter(FrameProcessor):
                 else:
                     await self.speak("Yes?")
                     return
+        if self.app.mode == "ask" and speaker != "wearer" and self.app.knows_wearer_voice():
+            await self.app.heard(speaker, text, name)        # someone else nearby: remember it, but it's not
+            return                                           # part of the wearer's question
         if self.app.mode == "ask":
+            if FILLER.match(text) and not self._question:
+                return                                       # "yeah" / "okay" / "mm" on its own isn't a question
             if CLOSERS.search(text) and len(text.split()) <= 6:
                 self.app._closing = True                     # "thank you" -> "you're welcome", then stop
             self._question.append(text)                      # whoever speaks after the double-tap is asking
@@ -205,16 +216,26 @@ def rule_answer(q: str) -> str:
 
 
 # --------------------------------------------------------------------------- LLM + tools
-SYSTEM = """You are Kin, a warm, calm companion for {wearer}, who has early memory loss.
-You speak out loud, so answer in one to three short, simple sentences. No lists, no markdown.
-Use the memory below and your tools. Answer only their latest question; don't repeat earlier answers. If they just say thanks or goodbye, reply warmly in a few words
-("You're welcome, Joe." / "Any time."). If they say something that isn't a question, respond naturally
-and briefly, like a friend would. Never guess a name or a fact: if you are not sure, say so
-gently ("I think that might be Sarah"). Only use the purchase tool when they clearly ask you to buy or reorder a product for themselves.
-If they mention someone asking them for money (even family), or ask whether to send money: kindly tell them
-not to send anything until they've called that person back on a number they already know, or checked with
-their family. Never help with gift cards, wire transfers or giving out card numbers. When they say they've
-done a to-do, mark it done with complete_todo.
+SYSTEM = """You are Kin, a warm, calm companion living in a wristband worn by {wearer}, who has early memory loss.
+The person talking to you is {wearer}: that is their name, always. It is now {now}.
+
+How to answer:
+- You speak out loud: usually ONE short sentence, at most two. No lists, no markdown. Don't say their name.
+- If they ask you to stop doing something (e.g. a phrase or habit), stop for the rest of the conversation.
+- Use everything in "What you remember" below, including the recent conversation, to understand short or unfinished
+  questions ("and her?", "what about the pills", "where did I put them") and follow-ups.
+- "Who was here / who did I see today?": name everyone heard today, most recent first, with one detail each.
+- Never invent names, places or facts. If memory doesn't have it, say so kindly and offer what you do know.
+- Answer only the latest question; don't repeat earlier answers. Thanks or goodbye: reply warmly in a few words.
+- If something isn't a question, respond naturally and briefly, like a kind friend would.
+- If they sound confused or lost ("where am I?", "what's happening?"): stay calm and reassuring, tell them who
+  they are and something familiar from today, suggest sitting down, and use alert_family so someone checks on them.
+- If they feel lonely or sad: be warm, mention someone who cares (from memory), offer to remind them to call.
+- Money: only use the purchase tool when they clearly ask you to buy or reorder a product for themselves. If someone
+  asked them for money (even family) or they ask whether to send money, kindly tell them not to send anything until
+  they've called that person back on a number they already know, or checked with family. Never help with gift
+  cards, wire transfers or giving out card numbers.
+- When they say they've done a to-do, mark it done with complete_todo.
 
 What you remember:
 {memory}"""
@@ -252,6 +273,25 @@ def make_llm_parts(app):
         memory.add_fact(params.arguments["text"], None, "wearer_note", 3)
         await params.result_callback({"saved": True})
 
+    async def set_speech_speed(params):
+        from . import settings
+        from pipecat.frames.frames import TTSUpdateSettingsFrame
+        how = (params.arguments.get("change") or "").lower()
+        cur = settings.speed()
+        new = 1.0 if how == "normal" else cur - 0.15 if how == "slower" else cur + 0.1 if how == "faster" else cur
+        new = settings.set_speed(new)
+        tts = app.tts
+        if isinstance(tts, SayTTS):
+            tts.speed = new
+        elif hasattr(type(tts), "Settings"):
+            await params.llm.push_frame(TTSUpdateSettingsFrame(delta=type(tts).Settings(speed=new)))
+        await params.result_callback({"speed": new, "range": "0.7 (slowest) to 1.2 (fastest)"})
+
+    async def alert_family(params):
+        reason = (params.arguments.get("reason") or "He may need help.")[:200]
+        memory.add_alert("confused", f"{config.WEARER_NAME} sounded confused or unwell: {reason}")
+        await params.result_callback({"family_alerted": True})
+
     async def complete_todo(params):
         words = params.arguments.get("text", "").lower()
         done = []
@@ -283,6 +323,12 @@ def make_llm_parts(app):
         FunctionSchema("get_todos", "The wearer's open plans and to-dos.", {}, [], handler=get_todos),
         FunctionSchema("remember", "Save something the wearer explicitly asks you to remember.",
                        {"text": {"type": "string"}}, ["text"], handler=remember),
+        FunctionSchema("set_speech_speed", "Change how fast Kin talks when they ask (slower, faster, or normal).",
+                       {"change": {"type": "string", "enum": ["slower", "faster", "normal"]}}, ["change"],
+                       handler=set_speech_speed),
+        FunctionSchema("alert_family", "Quietly let the family know he may need help (confused, lost, unwell, "
+                       "frightened). Don't use it for normal questions.",
+                       {"reason": {"type": "string"}}, ["reason"], handler=alert_family),
         FunctionSchema("complete_todo", "Mark one of the wearer's to-dos as done when they say they did it.",
                        {"text": {"type": "string", "description": "words from the to-do"}}, ["text"],
                        handler=complete_todo),
@@ -298,10 +344,19 @@ def make_llm_parts(app):
 
 
 def system_prompt() -> str:
-    return SYSTEM.format(wearer=config.WEARER_NAME, memory=memory.summary_for_llm())
+    now = time.strftime("%A, %B %-d, %Y, %-I:%M %p")
+    return SYSTEM.format(wearer=config.WEARER_NAME, now=now, memory=memory.summary_for_llm())
 
 
 # --------------------------------------------------------------------------- voice out
+def _saved_speed() -> float:
+    try:
+        from . import settings
+        return settings.speed()
+    except Exception:
+        return 1.0
+
+
 def make_tts():
     """Voice choice: KIN_VOICE=elevenlabs|openai|say forces one (tests use 'say' so they never spend
     ElevenLabs characters); otherwise ElevenLabs if there's a key, then OpenAI, then the Mac voice."""
@@ -311,12 +366,13 @@ def make_tts():
     if config.ELEVENLABS_API_KEY and want in ("", "elevenlabs"):
         from pipecat.services.elevenlabs.tts import ElevenLabsTTSService
         return ElevenLabsTTSService(api_key=config.ELEVENLABS_API_KEY,
-                                    settings=ElevenLabsTTSService.Settings(voice=config.ELEVENLABS_VOICE_ID))
+                                    settings=ElevenLabsTTSService.Settings(voice=config.ELEVENLABS_VOICE_ID,
+                                                                           speed=_saved_speed()))
     if config.OPENAI_API_KEY and want in ("", "openai", "elevenlabs"):
         from pipecat.services.openai.tts import OpenAITTSService
         log.info("Voice: OpenAI text-to-speech%s", " (KIN_VOICE=openai: saving ElevenLabs characters)" if want == "openai" else " (no ElevenLabs key)")
         return OpenAITTSService(api_key=config.OPENAI_API_KEY, settings=OpenAITTSService.Settings(
-            voice=os.environ.get("KIN_OPENAI_VOICE", "sage"),
+            voice=os.environ.get("KIN_OPENAI_VOICE", "sage"), speed=_saved_speed(),
             instructions="Speak warmly, slowly and calmly, like a kind friend talking to an older person."))
     log.warning("No ElevenLabs or OpenAI key: using the Mac's built-in voice.")
     return SayTTS()
@@ -350,7 +406,8 @@ class SayTTS(FrameProcessor):
         self.spoken.append(text)
         memory.add_line("kin", text, name="Kin")
         if shutil.which("say") and not getattr(self, "mute", False):
-            await asyncio.to_thread(subprocess.run, ["say", text])
+            rate = str(int(185 * getattr(self, "speed", _saved_speed())))
+            await asyncio.to_thread(subprocess.run, ["say", "-r", rate, text])
         await self.push_frame(TTSStoppedFrame())
 
 

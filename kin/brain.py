@@ -55,11 +55,18 @@ PROMPT = """You are the memory of {wearer}, a person with early memory loss who 
 Below is a short piece of conversation heard by the band. "wearer" is {wearer}; other speakers are
 labelled "speaker N", with a name when we already know who they are.
 
-Decide what is worth remembering FOR {wearer}. Be strict: most everyday talk is not important.
+Decide what is worth remembering FOR {wearer}. Drop only pure pleasantries (greetings, "how are you",
+weather chat, filler). KEEP anything concrete or objective about anyone, including {wearer} himself:
+places, times, dates, names, numbers, plans, where things are, health, news. When unsure, keep it.
 importance: 0 = greetings, small talk, weather, a cashier/waiter asking for an order, TV or background;
 1 = mildly useful for today only; 2 = worth remembering long-term (facts about people in their life,
 where they put things); 3 = needs action or is about health, medicine, money or safety.
 Known family/friends lower the bar; strangers raise it (except money or safety, which always count).
+money_safety means someone asking {wearer} to SEND, WIRE, TRANSFER or GIVE money, buy gift cards, or share card or
+bank details - or {wearer} offering or agreeing to (e.g. "How much?", "Okay, I'll send you $250"; on a phone call the
+band mostly hears {wearer}). That is always importance 3. Ordinary shopping is NOT money_safety: a cashier saying a
+price, paying for coffee, a bill being mentioned - that's a transaction (importance 0 unless something concrete is
+worth keeping).
 
 Also extract:
 - speaker_names: if someone introduces themselves or is clearly named ("Hi Dad, it's Sarah"), map
@@ -72,7 +79,9 @@ Also extract:
   with `about` = the person's name or "".
 - todos: plans or promises {wearer} made or must remember ("Call the dentist", due "tomorrow").
   Never turn a suspicious request (money, gift cards, bail, secrecy) into a to-do.
-- items: where {wearer} put things ("keys" -> "kitchen drawer"), only from what was said.
+- items: where {wearer}'s things are, whoever put them there or said so ("keys" -> "kitchen drawer";
+  "Son, you parked the car in D2" -> "car" -> "parking spot D2"), only from what was said. Short
+  or misheard phrasing is common: use the surrounding lines to understand it ("In D two?" = "D2").
 Return empty lists when nothing qualifies. Never invent facts.
 
 Known people: {known}
@@ -181,13 +190,16 @@ FAKE_NAME = re.compile(r"^(speaker\b|unnamed|unknown|caller|wearer|someone|stran
 
 
 KIN_NAMES = {"kin", "ken", "kim", "kinn", "kenn", "ken's"}       # "Hey Kin" misheard is not a person
+REL_WORDS = {"son", "daughter", "mom", "mother", "dad", "father", "grandson", "granddaughter", "grandma",
+             "grandpa", "grandmother", "grandfather", "wife", "husband", "brother", "sister", "uncle", "aunt",
+             "neighbor", "neighbour", "doctor", "nurse", "friend", "sweetheart", "honey", "buddy", "sir", "ma'am"}
 MONEY_TODO = re.compile(r"\b(send|sending|transfer|wire|pay|paying|money|gift ?cards?|bail|\$\d)", re.I)
 
 
 def _real_name(name: str) -> bool:
     n = (name or "").strip()
     return (bool(n) and not FAKE_NAME.match(n) and n.lower() != config.WEARER_NAME.lower() and len(n) <= 30
-            and n.lower() not in KIN_NAMES)
+            and n.lower() not in KIN_NAMES and n.lower() not in REL_WORDS)
 
 
 def _recent_scam(minutes: float = 20) -> bool:
@@ -209,26 +221,37 @@ def _name_voice(speaker: str, name: str, res: dict) -> None:
         log.warning("could not name voice %s: %s", speaker, e)
 
 
+SUSPECT = re.compile(r"\b(send|wire|transfer|gift ?cards?|bail|bank|card number|money|cash|\$\s?\d|dollars?)\b", re.I)
+
+
 def save(res: dict, lines: list[dict]) -> None:
     scam = res.get("category") == "money_safety"
-    if not scam:                                     # a scammer never becomes a known person
+    # only the voices that talked money in this chunk are suspects; everyone else is saved normally
+    suspects = {l.get("speaker") for l in lines if scam and SUSPECT.search(l.get("text", ""))} - {"wearer"}
+    suspect_names = {s["name"].lower() for s in res.get("speaker_names", []) if s.get("speaker") in suspects}
+    if True:                                         # a scammer never becomes a known person
         for s in res.get("speaker_names", []):
+            if s.get("speaker") in suspects:
+                continue
             if _real_name(s.get("name")) and s.get("speaker") and s["speaker"] != "wearer":
                 memory.upsert_person(s["name"], speaker=s["speaker"])
                 _name_voice(s["speaker"], s["name"], res)
         for p in res.get("people", []):
+            if p.get("name", "").lower() in suspect_names or (scam and any(
+                    w in (p.get("relationship") or "").lower() for w in ("caller", "stranger", "scam"))):
+                continue
             if _real_name(p.get("name")):
                 rel = (p.get("relationship") or "").strip()
                 rel = "" if len(rel) > 25 or "unknown" in rel.lower() else rel
                 memory.upsert_person(p["name"], relationship=rel)
     for f in res.get("facts", []):
         pid = None
-        if f.get("about") and _real_name(f["about"]) and not scam:
+        if f.get("about") and _real_name(f["about"]) and f["about"].lower() not in suspect_names:
             p = memory.find_person(f["about"])
             pid = p["id"] if p else memory.upsert_person(f["about"])
         memory.add_fact(f["text"], pid, f.get("category", ""), max(2, res.get("importance", 2)))
-    for t in ([] if scam else res.get("todos", [])):    # never a to-do from a scam call
-        if MONEY_TODO.search(t["text"]) and _recent_scam():
+    for t in res.get("todos", []):                     # never a money to-do (filtered below)
+        if MONEY_TODO.search(t["text"]) and (scam or _recent_scam()):
             continue                                     # "send it" right after a scam call: no
         memory.add_todo(t["text"], t.get("due", ""))
     for i in res.get("items", []):

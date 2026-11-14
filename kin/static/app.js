@@ -130,6 +130,10 @@
       d.push("Call him or go look for him.");
       return { tone: "bad", title: "He may have wandered off" + at, details: d };
     }
+    if (a.kind === "confused") {
+      return { tone: "bad", title: "He sounded confused" + at,
+        details: ["Kin is keeping him calm.", "Please give him a call."] };
+    }
     if (a.kind === "spending") {
       return { tone: "warn", title: "Kin stopped a purchase" + at, details: [cap(text.replace(/^Blocked:\s*/i, ""))] };
     }
@@ -137,7 +141,7 @@
   }
 
   // Alerts that mean "he may not be OK": they turn the top red and notify the family's devices.
-  const URGENT = new Set(["scam", "fall", "fall_emergency", "wander"]);
+  const URGENT = new Set(["scam", "fall", "fall_emergency", "wander", "confused"]);
   // A few words on what Kin did about it, for the status line and the device notification.
   function shortAction(a, pool) {
     if (a.kind === "scam") return kinSpokeNear(a.ts) ? "Kin warned him" : "";
