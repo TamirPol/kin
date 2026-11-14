@@ -7,8 +7,12 @@
 #   bash scripts/actors.sh doctor     # medication instructions
 #   bash scripts/actors.sh neighbor   # a favour for Saturday
 #   bash scripts/actors.sh cashier    # small talk Kin should ignore
-SPK="${KIN_ACTOR_SPEAKERS:-MacBook Pro Speakers}"
-line() { say -a "$SPK" -v "$1" -r 165 "$2"; sleep 0.6; }
+# The Mac's built-in speakers by device NUMBER (macOS `say -a "<name>"` crashes on some names).
+SPK="${KIN_ACTOR_SPEAKERS:-$(say -a '?' 2>/dev/null | grep -i 'speaker' | head -1 | awk '{print $1}')}"
+line() {
+  if [ -n "$SPK" ]; then say -a "$SPK" -v "$1" -r 165 "$2" || say -v "$1" -r 165 "$2"; else say -v "$1" -r 165 "$2"; fi
+  sleep 0.6
+}
 case "${1:-}" in
   sarah)    line Samantha "Hi Dad, it's Sarah!"
             line Samantha "I just wanted to tell you, I'm moving to Oakland next week for my new job."
