@@ -89,7 +89,7 @@
 
   <section class="step" id="stepContacts">
     <h2><span class="num">3</span>Emergency contacts</h2>
-    <p class="hint">They get a phone alert if there's a possible scam call, a fall, or if the band leaves home. Each person installs the free <b>ntfy</b> app and opens their own link. Recording their voice too lets Kin tell the wearer when they visit.</p>
+    <p class="hint">They get a phone alert if there's a possible scam call, a fall, or if the band leaves home. Each person installs the free <b>ntfy</b> app and opens their own link.</p>
     <div class="body">
       <ul id="contactList"></ul>
       <form class="row" id="contactForm">
@@ -100,7 +100,7 @@
     </div>
   </section>
 
-  <section class="step" id="stepFamily">
+  <section class="step" id="stepFamily" hidden style="display:none">
     <h2><span class="num">4</span>Family voices <span style="font-weight:500;color:var(--muted);font-size:15px">optional</span></h2>
     <p class="hint">So Kin can tell them who's visiting. Kin also learns names when people introduce themselves.</p>
     <div class="body">
@@ -189,7 +189,7 @@ async function loadSettings() {
     };
     const rm = document.createElement("button"); rm.className = "quiet"; rm.textContent = "Remove";
     rm.onclick = async () => { if (confirm(`Stop sending alerts to ${c.name}?`)) { await fetch(`/api/contacts/${c.id}`, { method: "DELETE" }); loadSettings(); } };
-    li.append(who, voice, copy, test, rm); list.append(li);
+    li.append(who, copy, test, rm); list.append(li);
   });
   $("stepContacts").classList.toggle("done", s.contacts.length > 0);
 }
