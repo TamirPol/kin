@@ -380,9 +380,12 @@ class Speaker(FrameProcessor):
         try:
             import sounddevice as sd
             if self._stream is None or self._stream.samplerate != frame.sample_rate:
+                # latency="high": a bigger buffer, so gaps between streamed chunks don't underrun and
+                # pop ("poom") - very audible on Bluetooth earbuds. A short silent lead-in for the same reason.
                 self._stream = sd.RawOutputStream(samplerate=frame.sample_rate, channels=frame.num_channels,
-                                                  dtype="int16")
+                                                  dtype="int16", latency="high")
                 self._stream.start()
+                self._stream.write(b"\x00\x00" * int(frame.sample_rate * 0.15) * frame.num_channels)
             self._stream.write(frame.audio)
         except Exception as e:
             log.warning("Could not play audio: %s", e)
