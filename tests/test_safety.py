@@ -290,6 +290,27 @@ def test_say_lines_are_gentle_and_name_family():
     assert gentle(safety.purchase("milk", "Safeway", 449)["say"])
 
 
+@pytest.mark.parametrize("env", ["", "   ", ".", " . "])
+def test_blank_family_contact_falls_back_to_your_family(monkeypatch, env):
+    monkeypatch.setattr(safety, "FAMILY_CONTACT", env)
+    assert safety.family_contact() == "your family"
+    say = safety.check_scam(SCAM_CALL)["say"]
+    assert say.endswith("I've let your family know.") and not re.search(r"\s[.,]|\s{2}|\.\.|let\s+know", say), say
+
+
+@pytest.mark.parametrize("rel", ["daughter", "Daughter", "child", "son", "my daughter", "daughter-in-law"])
+def test_child_relationships_are_picked(rel):
+    memory.upsert_person("Sarah. ", rel)
+    assert safety.family_contact() == "Sarah"
+    say = safety.check_scam(SCAM_CALL)["say"]
+    assert say.endswith("I've let Sarah know.") and "  " not in say and " ." not in say
+
+
+def test_blank_named_child_is_skipped():
+    memory._exec("INSERT INTO people(name,relationship,last_seen,created) VALUES(' ', 'daughter', 9e9, 0)")
+    assert safety.family_contact() == "your family"
+
+
 # ---------------- the demo line, end to end
 DEMO = "Kin, reorder my blood pressure pills from Walgreens"
 

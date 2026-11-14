@@ -104,15 +104,30 @@ def _money(cents: int) -> str:
 
 def family_contact() -> str:
     """Who Kin tells the wearer it has let know: env override, else a daughter/son from memory, else 'your family'."""
-    if FAMILY_CONTACT.strip():
-        return FAMILY_CONTACT.strip()
+    name = _clean_name(FAMILY_CONTACT)
+    if name:
+        return name
     try:
         for p in memory.people():                       # most recently seen first
-            if p and _CHILD_RX.search(p.get("relationship") or "") and (p.get("name") or "").strip():
-                return p["name"].strip()
+            name = _clean_name((p or {}).get("name"))
+            if name and _CHILD_RX.search((p or {}).get("relationship") or ""):
+                return name
     except Exception:
         pass
     return "your family"
+
+
+def _clean_name(name) -> str:
+    """'  Sarah. ' -> 'Sarah'; '' / '.' / None -> ''."""
+    return re.sub(r"\s+", " ", str(name or "")).strip(" \t.,;:!?'\"")
+
+
+def _clean_say(text: str) -> str:
+    """No doubled spaces, no space before punctuation, no empty '..' — always ends with a full stop."""
+    t = re.sub(r"\s+", " ", text or "").strip()
+    t = re.sub(r"\s+([.,!?])", r"\1", t)
+    t = re.sub(r"([.,!?])[.,]+", r"\1", t)
+    return t if not t or t[-1] in ".!?" else t + "."
 
 
 def _cap(name: str) -> str:
@@ -316,7 +331,7 @@ def check_scam(lines: list[dict]) -> dict | None:
             memory.add_alert("scam", f"Possible scam call ({reason}). Purchases locked for 30 minutes.")
     else:
         say = f"Just a gentle reminder: if anyone asks for money or numbers, let's check with {who} first."
-    return {"risk": risk, "reason": reason, "say": say}
+    return {"risk": risk, "reason": reason, "say": _clean_say(say)}
 
 
 # ================================================================ 2. the economic agent
@@ -390,7 +405,7 @@ def _charge(item: str, merchant: str, amount_cents: int, idempotency_key: str = 
 def _block(item: str, merchant: str, amount_cents: int, reason: str, say: str) -> dict:
     memory.add_purchase(item, merchant, amount_cents, "blocked", reason)
     memory.add_alert("spending", f"Blocked: {item} from {merchant or '?'} for {_money(amount_cents)} — {reason}")
-    return {"status": "blocked", "reason": reason, "say": say, "stripe_id": ""}
+    return {"status": "blocked", "reason": reason, "say": _clean_say(say), "stripe_id": ""}
 
 
 def purchase(item: str, merchant: str, amount_cents: int) -> dict:
@@ -442,7 +457,7 @@ def purchase(item: str, merchant: str, amount_cents: int) -> dict:
                           f"Sorry, the payment didn't go through. I've let {who} know, so don't worry.")
         memory.add_purchase(item, canon, amount_cents, "allowed", "within guardrails", sid)
     return {"status": "allowed", "reason": "within guardrails",
-            "say": f"Done. I ordered your {item} from {canon} for {_money(amount_cents)}.",
+            "say": _clean_say(f"Done. I ordered your {item} from {canon} for {_money(amount_cents)}."),
             "stripe_id": sid}
 
 
