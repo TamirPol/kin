@@ -177,13 +177,14 @@ class Kin:
             log.warning("No Opus decoder (pip install av): %s", e)
         self.band.on("audio", self._on_audio)
         self.band.on("double-tap", self._on_double_tap)
+        self.band.on("tap", self._on_tap)              # two quick single taps also count (fabric muffles taps)
         self.band.on("free-fall", self._on_fall)
         self.band.on("disconnect", self._on_disconnect)
         self.band.on("reconnected", lambda e: self._set_band("connected"))
         self.band.on("reconnecting", self._on_reconnecting)
         self.band.on("link", self._on_link)
         # a firmer tap threshold (default 0.8 g) so walking and gesturing don't count as double-taps
-        await self.band.set_events(kinds=["tap", "double-tap", "free-fall"], tap_threshold=float(os.environ.get("KIN_TAP_G", "0.9")))
+        await self.band.set_events(kinds=["tap", "double-tap", "free-fall"], tap_threshold=float(os.environ.get("KIN_TAP_G", "0.7")))
         await self.band.configure(audio=True, events=True)     # light goes solid blue: mic is on
         if self.band.transport_kind in ("ble", "sim"):
             try:
@@ -396,6 +397,16 @@ class Kin:
                 peak = max(recent) if recent else -99
                 log.info("MIC sound arriving | loudest %.0f dB (lower = quieter; the venue is loud)", peak)
             last = n
+
+    async def _on_tap(self, e=None):
+        """The band's own double-tap detection struggles through the strap's fabric; two single taps within
+        0.8 s count as a double-tap too."""
+        now = time.time()
+        if now - getattr(self, "_single_tap_t", 0) < 0.8:
+            self._single_tap_t = 0.0
+            await self._on_double_tap(e)
+        else:
+            self._single_tap_t = now
 
     async def _on_double_tap(self, e=None):
         now = time.time()
