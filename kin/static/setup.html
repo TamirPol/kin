@@ -132,6 +132,10 @@
   <div class="tabs"><button type="button" class="on" data-mode="script">Read a script</button><button type="button" data-mode="free">Talk freely</button></div>
   <div class="script"><small class="scriptLabel">Read this out loud, at a normal pace:</small><span class="scriptText"></span></div>
   <div class="rec"><button type="button" class="recBtn">Record 20 seconds</button><span class="ring"></span><span class="state"></span></div>
+  <div class="live" hidden style="margin-top:12px">
+    <div style="height:10px;border-radius:5px;background:var(--soft);overflow:hidden"><div class="lvl" style="height:100%;width:0;background:var(--ok);transition:width .15s"></div></div>
+    <div class="heard" style="margin-top:8px;color:var(--muted);font-style:italic;min-height:1.4em"></div>
+  </div>
 </template>
 
 <script>
@@ -165,12 +169,16 @@ function recorder(el) {
                                             body: JSON.stringify({ cmd: `enroll ${role} ${name}` }) });
     if (!r.ok) { state.className = "state bad"; state.textContent = "Kin isn't running."; return; }
     btn.disabled = true; el.classList.add("recording"); state.className = "state";
+    el.querySelector(".live").hidden = false; window._recEl = el;
     let left = 20; state.textContent = `Recording… ${left}`;
     el._timer = setInterval(() => { left--; state.textContent = left > 0 ? `Recording… ${left}` : "Saving…";
-                                    if (left <= 0) clearInterval(el._timer); }, 1000);
+                                    if (left <= 0) { clearInterval(el._timer);
+                                      el._saveTimer = setTimeout(() => el.finish(false,
+                                        "Didn't hear back from Kin (it may have restarted). Please record again."), 15000); } }, 1000);
     el._pending = name;
   };
-  el.finish = (ok, msg) => { clearInterval(el._timer); btn.disabled = false; el.classList.remove("recording");
+  el.finish = (ok, msg) => { clearInterval(el._timer); clearTimeout(el._saveTimer); btn.disabled = false; el.classList.remove("recording");
+                             el.querySelector(".live").hidden = true; window._recEl = null;
                              state.className = "state " + (ok ? "ok" : "bad"); state.textContent = msg; };
   render();
   return el;
@@ -254,6 +262,15 @@ function connect() {
   const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
   ws.onmessage = (ev) => {
     let e; try { e = JSON.parse(ev.data); } catch { return; }
+    const rec = window._recEl;
+    if (rec && e.table === "mic") {
+      const db = e.row.db, pct = db == null ? 0 : Math.max(0, Math.min(100, (db + 60) / 50 * 100));
+      rec.querySelector(".lvl").style.width = pct + "%";
+      if (!e.row.arriving) rec.querySelector(".heard").textContent = "No sound from the band. Is it connected?";
+    }
+    if (rec && (e.table === "interim" || e.table === "transcript") && e.row.text && e.row.speaker !== "kin") {
+      rec.querySelector(".heard").textContent = "Hearing: “" + e.row.text + "”";
+    }
     if (e.table === "enroll" && e.row.state !== "recording") {
       const rec = recs.find((r) => r._pending === e.row.name) || recs[0];
       rec.finish(e.row.state === "done", e.row.text); loadVoices();
