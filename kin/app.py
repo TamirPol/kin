@@ -128,8 +128,11 @@ class Kin:
             self.band_state = "disconnected"
             self.publish_status(note=f"Band not connected: {e}")
             return
+        log.info("Connected to %s (%s)", self.band.name, "sim" if self.sim else "connected")
+        await self._setup_band()
+
+    async def _setup_band(self):
         self.band_state = "sim" if self.sim else "connected"
-        log.info("Connected to %s (%s)", self.band.name, self.band_state)
         try:
             from vexo_open.audio import PcmDecoder
             self._decoder = PcmDecoder()
@@ -140,6 +143,7 @@ class Kin:
         self.band.on("free-fall", self._on_fall)
         self.band.on("disconnect", self._on_disconnect)
         self.band.on("reconnected", lambda e: self._set_band("connected"))
+        self.band.on("reconnecting", self._on_reconnecting)
         self.band.on("link", self._on_link)
         # a firmer tap threshold (default 0.8 g) so walking and gesturing don't count as double-taps
         await self.band.set_events(kinds=["tap", "double-tap", "free-fall"], tap_threshold=float(os.environ.get("KIN_TAP_G", "1.0")))
@@ -154,8 +158,17 @@ class Kin:
     def _set_band(self, s):
         self.band_state = s
         if s == "connected":
-            self._lost_since = 0.0
+            if self._lost_since:
+                log.info("Band is back in range after %.0f s", time.time() - self._lost_since)
+            self._lost_since, self._far_since, self._wander_alerted = 0.0, 0.0, False
         self.publish_status()
+
+    def _on_reconnecting(self, e=None):
+        """The link dropped (out of range?): the kit is trying to get it back for 2 minutes."""
+        self.band_state = "reconnecting"
+        self._lost_since = self._lost_since or time.time()
+        log.warning("Band link lost: out of range? Reconnecting…")
+        self.publish_status(note="Band out of range: reconnecting")
 
     def _on_disconnect(self, e=None):
         self._set_band("disconnected")
@@ -173,6 +186,22 @@ class Kin:
         else:
             self._far_since = 0.0
             self._wander_alerted = False
+
+    async def reconnect_loop(self):
+        """If the band stays gone past its own 2-minute auto-reconnect, keep looking for it."""
+        while True:
+            await asyncio.sleep(5)
+            if self.sim or self.band_state != "disconnected" or (self.band and getattr(self.band, "reconnecting", False)):
+                continue
+            try:
+                kw = {}
+                self.band = await Band.connect(self.args.band, auto_reconnect=True, **kw)
+            except Exception:
+                self.publish_status(note="Band out of range: double-tap it when back")
+                continue
+            log.info("Band is back: reconnected to %s", self.band.name)
+            self._lost_since, self._far_since, self._wander_alerted = 0.0, 0.0, False
+            await self._setup_band()
 
     async def wander_loop(self):
         while True:
@@ -545,7 +574,8 @@ class Kin:
         self._quit = asyncio.Event()
         jobs = [asyncio.create_task(self.chunk_loop()), asyncio.create_task(self.reminder_loop()),
                 asyncio.create_task(self.wander_loop()), asyncio.create_task(self.mic_loop()), asyncio.create_task(self.meter_loop()),
-                asyncio.create_task(self.ask_timeout_loop())]
+                asyncio.create_task(self.ask_timeout_loop()),
+                asyncio.create_task(self.reconnect_loop())]
         demo_task = asyncio.create_task(self.demo()) if self.args.demo else None
         if demo_task:
             jobs.append(demo_task)
