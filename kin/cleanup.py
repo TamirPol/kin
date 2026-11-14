@@ -60,7 +60,7 @@ def clean(text: str, recent: list[str] | None = None) -> tuple[str, bool]:
         return t, False
     try:
         from openai import OpenAI
-        r = OpenAI(api_key=config.OPENAI_API_KEY, timeout=4).chat.completions.create(
+        r = OpenAI(api_key=config.OPENAI_API_KEY, timeout=2.5, max_retries=0).chat.completions.create(
             model=config.OPENAI_MODEL, reasoning_effort="none", response_format={"type": "json_object"},
             messages=[{"role": "user", "content": PROMPT.format(
                 wearer=config.WEARER_NAME, people=_people(), recent="\n".join((recent or [])[-6:]) or "(none)",

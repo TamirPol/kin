@@ -61,6 +61,7 @@ class Kin:
         self._speaker_db: dict[str, list[float]] = {}
         self._last_wearer: str | None = None
         self._wearer_dg, self._wearer_dg_t = "", 0.0   # Deepgram label of the last wearer sentence
+        self._dg_decision: dict[str, tuple[str, str]] = {}   # Deepgram label -> last confident (speaker, name)
         self._pkt_db: list[float] = []
         self._pkt_pcm: list[bytes] = []
         self._dg_voice: dict[str, dict] = {}      # Deepgram label -> last voiceprint match (this session)
@@ -540,11 +541,18 @@ class Kin:
                     m = voiceprint.observe(pcm)
                 except Exception as e:
                     log.warning("voiceprint failed: %s", e)
-        if m and m.get("id"):
+        fresh = bool(m and m.get("id"))
+        if fresh:
             self._dg_voice[dg] = m
         else:
             m = self._dg_voice.get(dg)                        # short clip: same Deepgram voice as last time
         m = m or {}
+        if not fresh and self.mode != "ask":
+            prev = self._dg_decision.get(dg)                  # a short line ("For free?") is too short to recognise:
+            if prev:                                          # keep what this voice was last decided to be,
+                return prev                                   # else assume the wearer (the band is on their wrist)
+            if not m:
+                return "wearer", config.WEARER_NAME
         thr = getattr(voiceprint, "THRESHOLD", 0.5) if voiceprint else 0.5
         score = m.get("score") or 0.0
 
@@ -566,6 +574,9 @@ class Kin:
         is_wearer = vote > 0
         log.debug("speaker vote %.1f (%s) -> %s", vote, ", ".join(why), "wearer" if is_wearer else m.get("id"))
 
+        if fresh and dg:                                      # remember this voice's decision for short lines
+            self._dg_decision[dg] = ("wearer", config.WEARER_NAME) if is_wearer else \
+                ((m["id"], m.get("name") or "") if m.get("id") else (loud_label, ""))
         if is_wearer:
             self._wearer_dg, self._wearer_dg_t = dg, time.time()
             if voiceprint is not None and m.get("id") and not m.get("name") and not voiceprint.wearer():
@@ -628,8 +639,13 @@ class Kin:
     MONEY_SAY = __import__("re").compile(
         r"(\b(send|sending|wire|transfer|give|giving|pay|paying|lend|venmo|zelle)\b.{0,25}"
         r"(\$\s?\d|\bmoney\b|\bcash\b|\bdollars?\b|\bgift ?cards?\b|\bbank\b|\bcard number)|"
-        r"\bhow much (money|do you need)\b|\bgift ?cards?\b|\bbail\b|\bsocial security\b|"
-        r"\b(card|account|routing) number\b)", __import__("re").I)
+        r"\bhow much (money|do you need)\b|\bgift ?cards?\b|\bbail\b|\bsocial security\b|\bssn\b|"
+        r"\b(card|account|routing) number\b|\bcard (info|information|details)\b|\bbank (info|details)\b|"
+        r"\b(give|tell|read|share|send|confirm|verify)\b.{0,30}\b(credit card|debit card|bank card|"
+        r"pin|password|passcode|bank account)\b|\b(need|want|what'?s)\b.{0,12}\byour\b.{0,20}\b(card|pin|password|"
+        r"passcode|bank|account)\b|\bwestern union\b|\bcrypto|bitcoin\b|"
+        r"\btime ?share\b|\byou'?ve won\b|\b(lottery|sweepstakes|prize)\b|\birs\b|\bwarrant\b|\bmedicare (card|number)\b)",
+        __import__("re").I)
 
     async def money_watch(self, speaker: str, text: str):
         """Money in a conversation (either side; on a phone call the band mostly hears the wearer):
@@ -646,8 +662,8 @@ class Kin:
         memory.add_alert("scam", f"Money came up in a conversation with {config.WEARER_NAME} "
                                  f"(\"{text[:80]}\"). Kin warned him not to send money.")
         log.warning("SCAM: money talk: %s", text)
-        await self.router.speak(f"Hold on, that sounds like someone asking for money. Please don't send anything "
-                                f"until you've checked with {who}. I've let them know.")
+        await self.router.speak(f"Hold on, this could be a scam. Please don't give any money, card numbers or "
+                                f"personal details until you've checked with {who}. I've let them know.")
 
     async def heard(self, speaker: str, text: str, name: str = ""):
         """A finished sentence from the band (listen mode). Never blocks the pipeline: the scam check runs on
@@ -670,7 +686,10 @@ class Kin:
 
     async def _store_heard(self, speaker: str, raw: str, name: str):
         text = raw
+        backlog = self._hear_q.qsize() if hasattr(self, "_hear_q") else 0
         try:                                           # careful AI cleanup of clear mishearings, with context
+            if backlog > 0:
+                raise RuntimeError("busy")             # sentences are piling up: store them as heard, don't fall behind
             from . import cleanup
             recent = [f"{l['name'] or l['speaker']}: {l['text']}" for l in memory.recent_lines(300)[-6:]]
             text, fixed = await asyncio.to_thread(cleanup.clean, raw, recent)
@@ -929,6 +948,11 @@ class Kin:
         await runner.add_workers(self.task)
         run_task = asyncio.create_task(runner.run())
         await asyncio.sleep(0.5)
+        try:                                           # warm the cleanup model so the first sentence isn't slow
+            from . import cleanup
+            asyncio.create_task(asyncio.to_thread(cleanup.clean, "hello there my friend", []))
+        except Exception:
+            pass
         try:
             from . import voiceprint
             await asyncio.to_thread(voiceprint.warm_up)
