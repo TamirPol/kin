@@ -60,6 +60,12 @@ Every key is optional: without Deepgram you type the conversation, without OpenA
 from memory with simple rules, without ElevenLabs it uses the Mac's voice, without Stripe purchases
 are simulated, without Gemini vision is off.
 
+## Team docs
+
+- [docs/HACKATHON.md](docs/HACKATHON.md): schedule, rules, submission checklist, **prizes**, free credits
+- [docs/PLAN.md](docs/PLAN.md): who does what (Core 1: Tash, Core 2: Tamir), checkpoints, demo script, test conversations, glasses
+- [docs/BAND.md](docs/BAND.md): what the Vexo band can do, gotchas, architecture, tuning knobs
+
 ## Privacy
 
 The band's solid blue light shows when the microphone is on. Small talk and strangers' chatter are
