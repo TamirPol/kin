@@ -171,6 +171,8 @@ def digest(lines: list[dict]) -> dict:
         res = _rules(lines)
     if res.get("items") or res.get("facts") or res.get("todos"):
         res["importance"] = max(int(res.get("importance", 0)), 2)   # anything stored is worth keeping
+    if res.get("todos") or res.get("category") in ("health", "money_safety"):
+        res["importance"] = 3                                      # plans, health and money need action
     save(res, lines)
     return res
 
