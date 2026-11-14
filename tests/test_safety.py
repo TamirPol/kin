@@ -4,6 +4,9 @@ import sys
 from pathlib import Path
 
 os.environ["KIN_DB"] = "/tmp/kin_safety_test.db"
+os.environ["KIN_SETTINGS"] = "/tmp/kin_safety_test_settings.json"   # never the real emergency contacts
+if os.path.exists(os.environ["KIN_SETTINGS"]):
+    os.remove(os.environ["KIN_SETTINGS"])
 if os.path.exists(os.environ["KIN_DB"]):
     os.remove(os.environ["KIN_DB"])
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
