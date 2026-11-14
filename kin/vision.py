@@ -33,11 +33,31 @@ from . import config, memory
 log = logging.getLogger("kin.vision")
 
 try:
-    import cv2
     import numpy as np
-except ImportError:          # vision still imports; webcam/diff fall back gracefully
-    cv2 = None
+except ImportError:
     np = None
+
+
+class _LazyCV2:
+    """Imports OpenCV on first use only: importing it next to PyAV prints scary (harmless) duplicate-class
+    warnings, and Kin's ears/brain only need normalize_item from this module."""
+    _mod = None
+
+    def __getattr__(self, name):
+        if _LazyCV2._mod is None:
+            import cv2 as _cv2
+            _LazyCV2._mod = _cv2
+        return getattr(_LazyCV2._mod, name)
+
+    def __bool__(self):
+        try:
+            import importlib.util
+            return importlib.util.find_spec("cv2") is not None
+        except Exception:
+            return False
+
+
+cv2 = _LazyCV2()
 
 
 # ======================================================================

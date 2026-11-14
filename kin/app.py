@@ -41,6 +41,9 @@ REMIND_AFTER = float(__import__("os").environ.get("KIN_REMIND_AFTER", "600"))  #
 REMIND_QUIET = 20.0        # only remind when nobody has spoken for this long
 WANDER_RSSI = -88          # dBm: weaker than this means the band is far from the laptop/base
 WANDER_SECONDS = 10.0      # ... for this long (or the link is lost this long) -> wander alert
+CONVO_WINDOW = 9.0         # after Kin answers, keep listening this long for a follow-up
+WAKE = __import__("re").compile(r"^\W*(?:(?:hey|hi|okay|ok|hello)[\s,]+)?(?:kin|ken|kim|kinn|kenn)\b[\s,.!?]*(.*)$", __import__("re").I)
+CLOSERS = __import__("re").compile(r"\b(thank you|thanks|thank u|bye|goodbye|that'?s all|that'?s it|never ?mind|ok(?:ay)? cool|got it)\b", __import__("re").I)
 DUE_NOW = ("today", "tonight", "this morning", "this afternoon", "this evening", "now", "soon")
 
 
@@ -64,6 +67,7 @@ class Kin:
         self._enroll_buf: list[bytes] = []
         self._last_tap = 0.0
         self._ask_started = 0.0
+        self._closing = False                     # the wearer said thanks/bye: end after this answer
         self._chunk: list[dict] = []
         self._chunk_started = 0.0
         self._last_heard = 0.0
@@ -149,7 +153,7 @@ class Kin:
         self.band.on("reconnecting", self._on_reconnecting)
         self.band.on("link", self._on_link)
         # a firmer tap threshold (default 0.8 g) so walking and gesturing don't count as double-taps
-        await self.band.set_events(kinds=["tap", "double-tap", "free-fall"], tap_threshold=float(os.environ.get("KIN_TAP_G", "1.0")))
+        await self.band.set_events(kinds=["tap", "double-tap", "free-fall"], tap_threshold=float(os.environ.get("KIN_TAP_G", "0.9")))
         await self.band.configure(audio=True, events=True)     # light goes solid blue: mic is on
         if self.band.transport_kind in ("ble", "sim"):
             try:
@@ -295,11 +299,11 @@ class Kin:
                 "speaking": self.speaking, "mode": self.mode, "band": self.band_state}})
 
     async def ask_timeout_loop(self):
-        """Back to listening if no question comes within 10 s of a double-tap."""
+        """Back to listening when the conversation goes quiet (no follow-up within CONVO_WINDOW s)."""
         while True:
             await asyncio.sleep(1)
             if (self.mode == "ask" and not self.speaking and not self.router._question and not self.router._last_q
-                    and time.time() - self._ask_started > 10):
+                    and time.time() - self._ask_started > CONVO_WINDOW):
                 self.mode = "listen"
                 log.info("Back to listening (no question)")
                 self.publish_status()
@@ -510,6 +514,15 @@ class Kin:
 
     async def digest(self, lines):
         res = await asyncio.to_thread(brain.digest, lines)
+        if res and res.get("category") == "money_safety" and time.time() - getattr(self, "_warned_scam", 0) > 120:
+            self._warned_scam = time.time()
+            fam = next((p["name"] for p in memory.people()
+                        if (p["relationship"] or "").lower() in ("daughter", "son", "child", "caregiver")), "")
+            who = fam or "your family"
+            memory.add_alert("scam", f"Money request heard in a conversation with {config.WEARER_NAME}. Kin warned him.")
+            log.warning("SCAM (from the conversation): money request")
+            await self.router.speak(f"That sounded like someone asking you for money. Please don't send anything "
+                                    f"until you've checked with {who}. I've let them know.")
         if res:
             log.info("MEMORY importance=%s %s | people=%s facts=%d todos=%d items=%d", res.get("importance"),
                      res.get("category"), [p["name"] for p in res.get("people", [])], len(res.get("facts", [])),
@@ -538,12 +551,20 @@ class Kin:
 
     # ------------------------------------------------------------------ ask mode end
     def done_speaking(self):
+        """Kin finished talking. In a conversation, keep listening for a follow-up (conversation mode):
+        the window restarts after every answer and closes after CONVO_WINDOW s of silence, or right after
+        a goodbye/thanks."""
         self.speaking = False
         self.router._last_q = ""                 # answered: no fallback needed any more
-        if self.mode == "ask" and not self.router._question and getattr(self, "_answered", False):
-            self.mode = "listen"
-            self.publish_status()
-        self._answered = self.mode == "ask"
+        if self.mode == "ask":
+            if self._closing:
+                self._closing = False
+                self.mode = "listen"
+                log.info("Conversation ended")
+                self.publish_status()
+            else:
+                self._ask_started = time.time()  # follow-up window starts now
+                self.publish_status(note="Still listening: ask a follow-up, or say thanks")
 
     # ------------------------------------------------------------------ dashboard, vision
     def publish_status(self, note: str = ""):

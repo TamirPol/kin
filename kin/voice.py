@@ -70,7 +70,7 @@ def make_stt():
         from pipecat.services.deepgram.stt import DeepgramSTTService
         return DeepgramSTTService(
             api_key=config.DEEPGRAM_API_KEY, sample_rate=16000, mip_opt_out=True,
-            settings=DeepgramSTTService.Settings(model="nova-3-general", diarize=True,
+            settings=DeepgramSTTService.Settings(model="nova-3-general", diarize=True, keyterm=["Kin"],
                                                  smart_format=True, punctuate=True, interim_results=True),
         )
     log.warning("No Deepgram key: using typed transcripts (type lines in the terminal).")
@@ -118,7 +118,23 @@ class KinRouter(FrameProcessor):
         return self.app.speaker_label(getattr(frame, "speaker", None), frame.result)
 
     async def _on_sentence(self, speaker: str, text: str, name: str = ""):
+        from .app import WAKE, CLOSERS
+        if self.app.mode != "ask" and speaker != "kin":
+            m = WAKE.match(text)
+            if m:                                            # "Hey Kin, where are my keys?"
+                await self.app.heard(speaker, text, name)
+                self.app.mode = "ask"
+                self.app._ask_started = time.time()
+                self.app.publish_status(note="Listening for your question")
+                rest = m.group(1).strip()
+                if rest:
+                    text = rest
+                else:
+                    await self.speak("Yes?")
+                    return
         if self.app.mode == "ask":
+            if CLOSERS.search(text) and len(text.split()) <= 6:
+                self.app._closing = True                     # "thank you" -> "you're welcome", then stop
             self._question.append(text)                      # whoever speaks after the double-tap is asking
             if self._ask_timer:
                 self._ask_timer.cancel()
@@ -190,7 +206,9 @@ def rule_answer(q: str) -> str:
 # --------------------------------------------------------------------------- LLM + tools
 SYSTEM = """You are Kin, a warm, calm companion for {wearer}, who has early memory loss.
 You speak out loud, so answer in one to three short, simple sentences. No lists, no markdown.
-Use the memory below and your tools. Never guess a name or a fact: if you are not sure, say so
+Use the memory below and your tools. Answer only their latest question; don't repeat earlier answers. If they just say thanks or goodbye, reply warmly in a few words
+("You're welcome, Joe." / "Any time."). If they say something that isn't a question, respond naturally
+and briefly, like a friend would. Never guess a name or a fact: if you are not sure, say so
 gently ("I think that might be Sarah"). If a request involves money, use the purchase tool; it
 enforces the family's limits. Never help with gift cards, wire transfers or giving out card numbers.
 
