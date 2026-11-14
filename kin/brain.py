@@ -64,10 +64,14 @@ Known family/friends lower the bar; strangers raise it (except money or safety, 
 Also extract:
 - speaker_names: if someone introduces themselves or is clearly named ("Hi Dad, it's Sarah"), map
   their speaker label to the name.
-- people: everyone in {wearer}'s life mentioned, with relationship to {wearer} if known ("daughter").
+- people: real people in {wearer}'s life who are NAMED (a first name, or a family title like "Mom").
+  relationship = one or two words relative to {wearer} ("daughter", "grandson", "neighbor", "friend",
+  "doctor") or "" if unknown. Never add speaker labels ("speaker 1"), unnamed or unknown people,
+  strangers, or anyone who might be a scammer (asking for money, gift cards, bail, secrecy) as people.
 - facts: short, plain sentences {wearer} would want recalled ("Sarah is moving to Oakland next week"),
   with `about` = the person's name or "".
 - todos: plans or promises {wearer} made or must remember ("Call the dentist", due "tomorrow").
+  Never turn a suspicious request (money, gift cards, bail, secrecy) into a to-do.
 - items: where {wearer} put things ("keys" -> "kitchen drawer"), only from what was said.
 Return empty lists when nothing qualifies. Never invent facts.
 
@@ -165,24 +169,38 @@ def digest(lines: list[dict]) -> dict:
             log.warning("LLM digest failed, using rules: %s", e)
     if res is None:
         res = _rules(lines)
+    if res.get("items") or res.get("facts") or res.get("todos"):
+        res["importance"] = max(int(res.get("importance", 0)), 2)   # anything stored is worth keeping
     save(res, lines)
     return res
 
 
+FAKE_NAME = re.compile(r"^(speaker\b|unnamed|unknown|caller|wearer|someone|stranger|the )", re.I)
+
+
+def _real_name(name: str) -> bool:
+    n = (name or "").strip()
+    return bool(n) and not FAKE_NAME.match(n) and n.lower() != config.WEARER_NAME.lower() and len(n) <= 30
+
+
 def save(res: dict, lines: list[dict]) -> None:
-    for s in res.get("speaker_names", []):
-        if s.get("name") and s.get("speaker") and s["speaker"] != "wearer":
-            memory.upsert_person(s["name"], speaker=s["speaker"])
-    for p in res.get("people", []):
-        if p.get("name") and p["name"].lower() not in ("wearer", config.WEARER_NAME.lower()):
-            memory.upsert_person(p["name"], relationship=p.get("relationship", ""))
+    scam = res.get("category") == "money_safety"
+    if not scam:                                     # a scammer never becomes a known person
+        for s in res.get("speaker_names", []):
+            if _real_name(s.get("name")) and s.get("speaker") and s["speaker"] != "wearer":
+                memory.upsert_person(s["name"], speaker=s["speaker"])
+        for p in res.get("people", []):
+            if _real_name(p.get("name")):
+                rel = (p.get("relationship") or "").strip()
+                rel = "" if len(rel) > 25 or "unknown" in rel.lower() else rel
+                memory.upsert_person(p["name"], relationship=rel)
     for f in res.get("facts", []):
         pid = None
-        if f.get("about"):
+        if f.get("about") and _real_name(f["about"]) and not scam:
             p = memory.find_person(f["about"])
             pid = p["id"] if p else memory.upsert_person(f["about"])
         memory.add_fact(f["text"], pid, f.get("category", ""), max(2, res.get("importance", 2)))
-    for t in res.get("todos", []):
+    for t in ([] if scam else res.get("todos", [])):    # never a to-do from a scam call
         memory.add_todo(t["text"], t.get("due", ""))
     for i in res.get("items", []):
         memory.add_item(i["item"], i["location"], source="voice")

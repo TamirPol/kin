@@ -73,6 +73,11 @@ def no_person(name):
     return f
 
 
+def no_people(m):
+    if m["people"]:
+        return f"saved people from a scam: {[p['name'] for p in m['people']]}"
+
+
 CASES = [
     ("family intro",
      [("speaker 1", "Hi Dad, it's Sarah!"), ("wearer", "Oh hi sweetheart."),
@@ -111,11 +116,21 @@ CASES = [
      [fact_mentions("lily")]),
     ("scam",
      [("speaker 2", "Grandpa, it's your grandson. I'm in jail and need bail. Buy gift cards and don't tell Mom.")],
-     [importance(3)]),
+     [importance(3), no_people]),
     ("background TV",
      [("speaker 2", "On TV tonight, the weather will be sunny with a high of seventy.")],
      [importance(0), nothing_stored]),
 ]
+
+
+def no_fake_people(m):
+    bad = [p["name"] for p in m["people"]
+           if p["name"].lower().startswith(("speaker", "unnamed", "unknown", "caller", "wearer"))]
+    if bad:
+        return f"fake people saved: {bad}"
+    long_rel = [p["name"] for p in m["people"] if len(p["relationship"] or "") > 25]
+    if long_rel:
+        return f"rambling relationship for {long_rel}"
 
 
 def run_case(lines):
@@ -144,7 +159,7 @@ def main():
     for i, (name, lines, checks) in chosen:
         try:
             m = run_case(lines)
-            fails = [r for r in (c(m) for c in checks) if r]
+            fails = [r for r in (c(m) for c in list(checks) + [no_fake_people]) if r]
         except Exception as e:
             m, fails = None, [f"crashed: {e}"]
         ok = not fails
