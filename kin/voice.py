@@ -152,6 +152,7 @@ class KinRouter(FrameProcessor):
     async def ask(self, question: str):
         log.info("ASK: %s", question)
         memory.add_line("wearer", question, name=config.WEARER_NAME)
+        self.app.flag_money(question)                        # "should I send my son $5,000?" -> family alert
         self.app.publish_status(note=f"Question: {question}")
         if config.OPENAI_API_KEY:
             self._last_q = question
@@ -209,8 +210,11 @@ You speak out loud, so answer in one to three short, simple sentences. No lists,
 Use the memory below and your tools. Answer only their latest question; don't repeat earlier answers. If they just say thanks or goodbye, reply warmly in a few words
 ("You're welcome, Joe." / "Any time."). If they say something that isn't a question, respond naturally
 and briefly, like a friend would. Never guess a name or a fact: if you are not sure, say so
-gently ("I think that might be Sarah"). If a request involves money, use the purchase tool; it
-enforces the family's limits. Never help with gift cards, wire transfers or giving out card numbers.
+gently ("I think that might be Sarah"). Only use the purchase tool when they clearly ask you to buy or reorder a product for themselves.
+If they mention someone asking them for money (even family), or ask whether to send money: kindly tell them
+not to send anything until they've called that person back on a number they already know, or checked with
+their family. Never help with gift cards, wire transfers or giving out card numbers. When they say they've
+done a to-do, mark it done with complete_todo.
 
 What you remember:
 {memory}"""
@@ -248,6 +252,15 @@ def make_llm_parts(app):
         memory.add_fact(params.arguments["text"], None, "wearer_note", 3)
         await params.result_callback({"saved": True})
 
+    async def complete_todo(params):
+        words = params.arguments.get("text", "").lower()
+        done = []
+        for t in memory.todos():
+            if words and (words in t["text"].lower() or any(w in t["text"].lower() for w in words.split() if len(w) > 3)):
+                memory.finish_todo(t["id"])
+                done.append(t["text"])
+        await params.result_callback({"done": done} if done else {"not_found": True})
+
     async def purchase(params):
         a = params.arguments
         try:
@@ -265,7 +278,12 @@ def make_llm_parts(app):
         FunctionSchema("get_todos", "The wearer's open plans and to-dos.", {}, [], handler=get_todos),
         FunctionSchema("remember", "Save something the wearer explicitly asks you to remember.",
                        {"text": {"type": "string"}}, ["text"], handler=remember),
-        FunctionSchema("purchase", "Buy something for the wearer within the family's limits.",
+        FunctionSchema("complete_todo", "Mark one of the wearer's to-dos as done when they say they did it.",
+                       {"text": {"type": "string", "description": "words from the to-do"}}, ["text"],
+                       handler=complete_todo),
+        FunctionSchema("purchase", "ONLY when the wearer explicitly asks Kin to buy or reorder a product for "
+                       "themselves (e.g. pills, groceries) from a store. NEVER for sending, transferring or "
+                       "giving money to a person, and never for 'should I send money?' questions.",
                        {"item": {"type": "string"}, "merchant": {"type": "string"},
                         "amount_cents": {"type": "integer"}}, ["item", "merchant", "amount_cents"],
                        handler=purchase),

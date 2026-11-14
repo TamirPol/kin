@@ -180,9 +180,19 @@ def digest(lines: list[dict]) -> dict:
 FAKE_NAME = re.compile(r"^(speaker\b|unnamed|unknown|caller|wearer|someone|stranger|the )", re.I)
 
 
+KIN_NAMES = {"kin", "ken", "kim", "kinn", "kenn", "ken's"}       # "Hey Kin" misheard is not a person
+MONEY_TODO = re.compile(r"\b(send|sending|transfer|wire|pay|paying|money|gift ?cards?|bail|\$\d)", re.I)
+
+
 def _real_name(name: str) -> bool:
     n = (name or "").strip()
-    return bool(n) and not FAKE_NAME.match(n) and n.lower() != config.WEARER_NAME.lower() and len(n) <= 30
+    return (bool(n) and not FAKE_NAME.match(n) and n.lower() != config.WEARER_NAME.lower() and len(n) <= 30
+            and n.lower() not in KIN_NAMES)
+
+
+def _recent_scam(minutes: float = 20) -> bool:
+    import time as _t
+    return any(a["kind"] == "scam" and _t.time() - a["ts"] < minutes * 60 for a in memory.alerts(20))
 
 
 def _name_voice(speaker: str, name: str, res: dict) -> None:
@@ -218,6 +228,8 @@ def save(res: dict, lines: list[dict]) -> None:
             pid = p["id"] if p else memory.upsert_person(f["about"])
         memory.add_fact(f["text"], pid, f.get("category", ""), max(2, res.get("importance", 2)))
     for t in ([] if scam else res.get("todos", [])):    # never a to-do from a scam call
+        if MONEY_TODO.search(t["text"]) and _recent_scam():
+            continue                                     # "send it" right after a scam call: no
         memory.add_todo(t["text"], t.get("due", ""))
     for i in res.get("items", []):
         from .vision import normalize_item              # "car keys" and "keys" are the same thing

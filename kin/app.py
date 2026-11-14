@@ -52,13 +52,14 @@ class Kin:
         self.args = args
         self.mode = "listen"
         self.speaking = False
-        self.ask_pause = 1.2
+        self.ask_pause = 1.8          # seconds of quiet that end a question
         self.has_diarization = bool(config.DEEPGRAM_API_KEY)
         self.band = None
         self.band_state = "disconnected"
         self._levels: deque = deque(maxlen=150)               # (time, dB) for the last 3 s
         self._speaker_db: dict[str, list[float]] = {}
         self._last_wearer: str | None = None
+        self._wearer_dg, self._wearer_dg_t = "", 0.0   # Deepgram label of the last wearer sentence
         self._pkt_db: list[float] = []
         self._pkt_pcm: list[bytes] = []
         self._dg_voice: dict[str, dict] = {}      # Deepgram label -> last voiceprint match (this session)
@@ -411,40 +412,65 @@ class Kin:
             return b""
 
     def voice_label(self, spk, result=None) -> tuple[str, str]:
-        """(speaker, name) for a finished sentence. Voiceprints first (they survive restarts and days);
-        Deepgram's in-session labels + relative loudness as the fallback."""
-        label = self.speaker_label(spk, result)        # loudness: 'wearer' or 'speaker N'
+        """(speaker, name) for a finished sentence: a vote between three signals, so no single noisy one wins.
+          voice    - voiceprint match (strong; survives restarts and days)
+          loudness - the wearer's voice is the loudest at the wrist
+          context  - same Deepgram voice as the last wearer sentence; talking to Kin in a conversation
+        """
+        loud_label = self.speaker_label(spk, result)          # 'wearer' or 'speaker N' (relative loudness)
+        dg = str(getattr(spk, "label", "")) if spk is not None else ""
         try:
             from . import voiceprint
         except Exception:
-            return label, ""
-        dg = str(getattr(spk, "label", "")) if spk is not None else ""
-        pcm = self._utterance_pcm(spk, result) if spk is not None else b""
+            voiceprint = None
         m = None
-        if pcm:
-            try:
-                m = voiceprint.observe(pcm)
-            except Exception as e:
-                log.warning("voiceprint failed: %s", e)
+        if voiceprint is not None and spk is not None:
+            pcm = self._utterance_pcm(spk, result)
+            if pcm:
+                try:
+                    m = voiceprint.observe(pcm)
+                except Exception as e:
+                    log.warning("voiceprint failed: %s", e)
         if m and m.get("id"):
             self._dg_voice[dg] = m
         else:
-            m = self._dg_voice.get(dg)                 # short clip: same Deepgram voice as last time
-        if not m or not m.get("id"):
-            return label, ""
+            m = self._dg_voice.get(dg)                        # short clip: same Deepgram voice as last time
+        m = m or {}
+        thr = getattr(voiceprint, "THRESHOLD", 0.5) if voiceprint else 0.5
+        score = m.get("score") or 0.0
+
+        vote, why = 0.0, []
         if m.get("is_wearer") or m.get("role") == "wearer":
+            vote += 3 if score >= thr + 0.1 else 2; why.append("voice=wearer")
+        elif m.get("name") and score >= thr + 0.15:
+            vote -= 3; why.append(f"voice={m['name']}")
+        elif m.get("name"):
+            vote -= 1; why.append(f"voice~{m['name']}")
+        if loud_label == "wearer":
+            vote += 1.5; why.append("loudest")
+        else:
+            vote -= 1; why.append("quieter")
+        if dg and dg == self._wearer_dg and time.time() - self._wearer_dg_t < 20:
+            vote += 1; why.append("same voice as before")
+        if self.mode == "ask":
+            vote += 1.5; why.append("talking to Kin")
+        is_wearer = vote > 0
+        log.debug("speaker vote %.1f (%s) -> %s", vote, ", ".join(why), "wearer" if is_wearer else m.get("id"))
+
+        if is_wearer:
+            self._wearer_dg, self._wearer_dg_t = dg, time.time()
+            if voiceprint is not None and m.get("id") and not m.get("name") and not voiceprint.wearer():
+                n = self._wearer_votes[m["id"]] = self._wearer_votes.get(m["id"], 0) + 1
+                if n >= 4:                                    # no onboarding: learn the wearer's voice
+                    try:
+                        voiceprint.name_voice(m["id"], config.WEARER_NAME, role="wearer")
+                        log.info("Learned %s's voice (the wearer)", config.WEARER_NAME)
+                    except Exception as e:
+                        log.warning("could not name the wearer's voice: %s", e)
             return "wearer", config.WEARER_NAME
-        # no wearer enrolled yet: if loudness keeps saying this voice is the wearer, learn it
-        if label == "wearer" and not voiceprint.wearer() and not m.get("name"):
-            n = self._wearer_votes[m["id"]] = self._wearer_votes.get(m["id"], 0) + 1
-            if n >= 4:
-                try:
-                    voiceprint.name_voice(m["id"], config.WEARER_NAME, role="wearer")
-                    log.info("Learned %s's voice (the wearer)", config.WEARER_NAME)
-                except Exception as e:
-                    log.warning("could not name the wearer's voice: %s", e)
-            return "wearer", config.WEARER_NAME
-        return m["id"], m.get("name") or ""
+        if m.get("id"):
+            return m["id"], (m.get("name") or "")
+        return loud_label if loud_label != "wearer" else "speaker ?", ""
 
     def speaker_label(self, spk, result=None) -> str:
         """Turns Deepgram's speaker number into 'wearer' or 'speaker N'.
@@ -511,6 +537,19 @@ class Kin:
             if self._chunk and (now - self._last_heard > CHUNK_PAUSE or now - self._chunk_started > CHUNK_MAX):
                 lines, self._chunk = self._chunk, []
                 await self.digest(lines)
+
+    def flag_money(self, text: str) -> None:
+        """Someone is asking the wearer for money (told to Kin directly): alert the family, once per 2 min."""
+        import re
+        if not re.search(r"(\$\s?\d|\b\d[\d,]* ?(dollars|bucks)\b|\b(send|wire|transfer|give)\b.*\b(money|cash|\$)|"
+                         r"\bgift ?cards?\b|\bbail\b)", text, re.I):
+            return
+        if time.time() - getattr(self, "_warned_scam", 0) < 120:
+            return
+        self._warned_scam = time.time()
+        memory.add_alert("scam", f"{config.WEARER_NAME} was asked for money and asked Kin about it. Kin told him "
+                                 "to check with family first.")
+        log.warning("SCAM: money request mentioned to Kin")
 
     async def digest(self, lines):
         res = await asyncio.to_thread(brain.digest, lines)
