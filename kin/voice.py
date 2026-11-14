@@ -102,23 +102,29 @@ class KinRouter(FrameProcessor):
         if isinstance(frame, TranscriptionFrame):
             text = frame.text.strip()
             if text:
-                await self._on_sentence(self._speaker_of(frame), text)
+                speaker, name = self._voice_of(frame)
+                await self._on_sentence(speaker, text, name)
             return                                           # never let raw transcripts reach the LLM
         await self.push_frame(frame, direction)
+
+    def _voice_of(self, frame: TranscriptionFrame) -> tuple[str, str]:
+        if isinstance(frame.result, dict) and frame.result.get("kin_speaker"):
+            return frame.result["kin_speaker"], ""
+        return self.app.voice_label(getattr(frame, "speaker", None), frame.result)
 
     def _speaker_of(self, frame: TranscriptionFrame) -> str:
         if isinstance(frame.result, dict) and frame.result.get("kin_speaker"):
             return frame.result["kin_speaker"]
         return self.app.speaker_label(getattr(frame, "speaker", None), frame.result)
 
-    async def _on_sentence(self, speaker: str, text: str):
+    async def _on_sentence(self, speaker: str, text: str, name: str = ""):
         if self.app.mode == "ask":
             self._question.append(text)                      # whoever speaks after the double-tap is asking
             if self._ask_timer:
                 self._ask_timer.cancel()
             self._ask_timer = asyncio.create_task(self._ask_after_pause())
         else:
-            await self.app.heard(speaker, text)
+            await self.app.heard(speaker, text, name)
 
     async def _ask_after_pause(self):
         await asyncio.sleep(self.app.ask_pause)

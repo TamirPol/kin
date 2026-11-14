@@ -58,6 +58,22 @@
   </section>
 
   <section class="card">
+    <h2>Teach Kin a voice</h2>
+    <p class="muted" style="margin:0 0 12px">Optional. Kin also learns voices by itself, but 10 seconds here makes it reliable right away.
+      The person talks normally near the band (read anything out loud) until the countdown ends.</p>
+    <form id="enrollForm" style="flex-wrap:wrap">
+      <input id="enrollName" placeholder="Name, e.g. Grandpa Joe or Sarah" autocomplete="off">
+      <select id="enrollRole" style="font:inherit;font-size:18px;padding:14px;border-radius:14px;border:1px solid var(--line);background:var(--bg);color:var(--ink)">
+        <option value="wearer">wears the band</option><option value="daughter">daughter</option><option value="son">son</option>
+        <option value="grandchild">grandchild</option><option value="friend">friend</option><option value="caregiver">caregiver</option>
+      </select>
+      <button id="enrollBtn">🎙 Record 10 seconds</button>
+    </form>
+    <div id="enrollState" style="font-size:24px;font-weight:700;margin-top:12px"></div>
+    <div id="voices" class="muted" style="margin-top:10px"></div>
+  </section>
+
+  <section class="card">
     <details>
       <summary>Test without talking</summary>
       <div class="row" style="margin-top:14px">
@@ -119,9 +135,33 @@ function connect() {
       const pct = e.row.db == null ? 0 : Math.max(0, Math.min(100, (e.row.db + 60) / 50 * 100));
       $("meter").style.width = pct + "%"; setStatus();
     } else if (e.table === "status") { mode = e.row.mode || mode; band = e.row.band || band; setStatus(); }
+    else if (e.table === "enroll" && e.row.state !== "recording") { clearInterval(countdown);
+      $("enrollState").textContent = (e.row.state === "done" ? "✅ " : "⚠️ ") + e.row.text; loadVoices(); }
   };
   ws.onclose = () => { band = ""; $("statusTitle").textContent = "Kin is not running"; $("status").className = "big bad"; setTimeout(connect, 1500); };
 }
+
+async function loadVoices() {
+  try {
+    const v = (await (await fetch("/api/voices")).json()).voices || [];
+    const named = v.filter((x) => x.name);
+    $("voices").textContent = named.length
+      ? "Voices Kin knows: " + named.map((x) => x.name + (x.role ? " (" + (x.role === "wearer" ? "wears the band" : x.role) + ")" : "")).join(", ")
+        + (v.length > named.length ? ` · plus ${v.length - named.length} voice(s) it heard but can't name yet` : "")
+      : (v.length ? `Kin has heard ${v.length} voice(s) but doesn't know their names yet.` : "Kin doesn't know any voices yet.");
+  } catch (e) {}
+}
+let countdown = null;
+$("enrollForm").onsubmit = async (e) => {
+  e.preventDefault();
+  const name = $("enrollName").value.trim(), role = $("enrollRole").value;
+  if (!name) { $("enrollName").focus(); return; }
+  await send("enroll " + role + " " + name);
+  let left = 10; clearInterval(countdown);
+  $("enrollState").textContent = `🎙 ${name}: keep talking… ${left}`;
+  countdown = setInterval(() => { left--; if (left > 0) $("enrollState").textContent = `🎙 ${name}: keep talking… ${left}`;
+                                  else { clearInterval(countdown); $("enrollState").textContent = "Saving…"; } }, 1000);
+};
 
 async function init() {
   try {
@@ -130,7 +170,7 @@ async function init() {
     band = (s.status && s.status.band) || "";
     s.transcript.slice(-12).forEach(add);
   } catch (e) {}
-  setStatus(); connect(); setInterval(setStatus, 5000);
+  setStatus(); connect(); setInterval(setStatus, 5000); loadVoices(); setInterval(loadVoices, 15000);
 }
 async function send(cmd) {
   const r = await fetch("/api/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmd }) });

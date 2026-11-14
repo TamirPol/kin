@@ -117,12 +117,20 @@ def create_app() -> FastAPI:
     @app.post("/api/command")
     def command(c: CommandIn):
         cmd = c.cmd.strip()[:300]
-        if cmd.split(" ", 1)[0] not in ("t", "f", "r", "a", "w", "1", "2", "3", "away", "home"):
+        if cmd.split(" ", 1)[0] not in ("t", "f", "r", "a", "w", "1", "2", "3", "away", "home", "enroll"):
             raise HTTPException(400, "unknown command")
         if not _command_handler:
             raise HTTPException(503, "Kin is not running")
         _command_handler(cmd)
         return {"ok": True}
+
+    @app.get("/api/voices")
+    def voices():
+        try:
+            from . import voiceprint
+            return {"voices": voiceprint.list_voices()}
+        except Exception as e:
+            return {"voices": [], "error": str(e)}
 
     @app.get("/api/snapshot")
     def snapshot():

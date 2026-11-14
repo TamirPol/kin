@@ -183,12 +183,27 @@ def _real_name(name: str) -> bool:
     return bool(n) and not FAKE_NAME.match(n) and n.lower() != config.WEARER_NAME.lower() and len(n) <= 30
 
 
+def _name_voice(speaker: str, name: str, res: dict) -> None:
+    """'Hi Dad, it's Sarah' from voice-3 -> voice-3 is Sarah from now on (and next week)."""
+    if not speaker.startswith("voice-"):
+        return
+    try:
+        from . import voiceprint
+        rel = next((p.get("relationship", "") for p in res.get("people", []) if p.get("name") == name), "")
+        voiceprint.name_voice(speaker, name, role=rel)
+        memory.upsert_person(name, speaker=voiceprint._slug(name))
+        log.info("Learned %s's voice", name)
+    except Exception as e:
+        log.warning("could not name voice %s: %s", speaker, e)
+
+
 def save(res: dict, lines: list[dict]) -> None:
     scam = res.get("category") == "money_safety"
     if not scam:                                     # a scammer never becomes a known person
         for s in res.get("speaker_names", []):
             if _real_name(s.get("name")) and s.get("speaker") and s["speaker"] != "wearer":
                 memory.upsert_person(s["name"], speaker=s["speaker"])
+                _name_voice(s["speaker"], s["name"], res)
         for p in res.get("people", []):
             if _real_name(p.get("name")):
                 rel = (p.get("relationship") or "").strip()

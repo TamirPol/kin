@@ -57,6 +57,11 @@ class Kin:
         self._speaker_db: dict[str, list[float]] = {}
         self._last_wearer: str | None = None
         self._pkt_db: list[float] = []
+        self._pkt_pcm: list[bytes] = []
+        self._dg_voice: dict[str, dict] = {}      # Deepgram label -> last voiceprint match (this session)
+        self._wearer_votes: dict[str, int] = {}
+        self._enrolling = None                    # (name, role, until) while onboarding a voice
+        self._enroll_buf: list[bytes] = []
         self._last_tap = 0.0
         self._ask_started = 0.0
         self._chunk: list[dict] = []
@@ -265,6 +270,13 @@ class Kin:
         db = level_db(pcm)
         self._levels.append((time.time(), db))
         self._pkt_db.append(db)                   # index i = audio time i*20 ms, Deepgram's clock
+        self._pkt_pcm.append(pcm)
+        if len(self._pkt_pcm) > 15000:            # keep ~5 min of sound for voiceprints
+            drop = len(self._pkt_pcm) - 15000
+            for k in range(drop):
+                self._pkt_pcm[k] = b""
+        if self._enrolling:
+            self._enroll_buf.append(pcm)
         self._audio_packets = getattr(self, "_audio_packets", 0) + 1
         await self.source.feed(pcm)
 
@@ -291,6 +303,32 @@ class Kin:
                 self.mode = "listen"
                 log.info("Back to listening (no question)")
                 self.publish_status()
+
+    async def enroll(self, name: str, role: str, seconds: float = 10.0):
+        """Onboarding: record `seconds` of this person talking near the band and save their voiceprint."""
+        if self._enrolling:
+            return
+        self._enroll_buf, self._enrolling = [], (name, role, time.time() + seconds)
+        log.info("Recording %s's voice for %.0f s… keep talking", name, seconds)
+        self.publish_status(note=f"Recording {name}'s voice: keep talking for {seconds:.0f} seconds")
+        if self.dashboard:
+            self.dashboard.publish({"table": "enroll", "row": {"name": name, "role": role, "state": "recording",
+                                                                "seconds": seconds}})
+        await asyncio.sleep(seconds)
+        pcm, self._enrolling = b"".join(self._enroll_buf), None
+        try:
+            from . import voiceprint
+            rec = await asyncio.to_thread(voiceprint.enroll, name, pcm, role)
+            if role and role != "wearer":
+                memory.upsert_person(name, relationship=role, speaker=rec.get("id", ""))
+            msg, state = f"Got it: I'll recognise {name}'s voice now.", "done"
+        except Exception as e:
+            msg, state = f"I couldn't learn {name}'s voice ({e}). Try again, talking a bit louder.", "failed"
+        log.info(msg)
+        self.publish_status(note=msg)
+        if self.dashboard:
+            self.dashboard.publish({"table": "enroll", "row": {"name": name, "role": role, "state": state, "text": msg}})
+        await self.router.speak(msg)
 
     async def mic_loop(self):
         """Every 10 s: is sound arriving from the band, and how loud (quiet room ~ -50 dB, talking ~ -30)."""
@@ -357,6 +395,53 @@ class Kin:
         except Exception:
             return None
 
+    def _utterance_pcm(self, spk, result) -> bytes:
+        try:
+            words = result.channel.alternatives[0].words or []
+            mine = [w for w in words if str(w.speaker) == str(spk.label)]
+            if not mine:
+                return b""
+            i0, i1 = int(mine[0].start / 0.02), int(mine[-1].end / 0.02) + 1
+            return b"".join(self._pkt_pcm[max(0, i0):i1])
+        except Exception:
+            return b""
+
+    def voice_label(self, spk, result=None) -> tuple[str, str]:
+        """(speaker, name) for a finished sentence. Voiceprints first (they survive restarts and days);
+        Deepgram's in-session labels + relative loudness as the fallback."""
+        label = self.speaker_label(spk, result)        # loudness: 'wearer' or 'speaker N'
+        try:
+            from . import voiceprint
+        except Exception:
+            return label, ""
+        dg = str(getattr(spk, "label", "")) if spk is not None else ""
+        pcm = self._utterance_pcm(spk, result) if spk is not None else b""
+        m = None
+        if pcm:
+            try:
+                m = voiceprint.observe(pcm)
+            except Exception as e:
+                log.warning("voiceprint failed: %s", e)
+        if m and m.get("id"):
+            self._dg_voice[dg] = m
+        else:
+            m = self._dg_voice.get(dg)                 # short clip: same Deepgram voice as last time
+        if not m or not m.get("id"):
+            return label, ""
+        if m.get("is_wearer") or m.get("role") == "wearer":
+            return "wearer", config.WEARER_NAME
+        # no wearer enrolled yet: if loudness keeps saying this voice is the wearer, learn it
+        if label == "wearer" and not voiceprint.wearer() and not m.get("name"):
+            n = self._wearer_votes[m["id"]] = self._wearer_votes.get(m["id"], 0) + 1
+            if n >= 4:
+                try:
+                    voiceprint.name_voice(m["id"], config.WEARER_NAME, role="wearer")
+                    log.info("Learned %s's voice (the wearer)", config.WEARER_NAME)
+                except Exception as e:
+                    log.warning("could not name the wearer's voice: %s", e)
+            return "wearer", config.WEARER_NAME
+        return m["id"], m.get("name") or ""
+
     def speaker_label(self, spk, result=None) -> str:
         """Turns Deepgram's speaker number into 'wearer' or 'speaker N'.
 
@@ -401,8 +486,8 @@ class Kin:
         return self._last_wearer
 
     # ------------------------------------------------------------------ listening -> memory
-    async def heard(self, speaker: str, text: str):
-        name = config.WEARER_NAME if speaker == "wearer" else ""
+    async def heard(self, speaker: str, text: str, name: str = ""):
+        name = config.WEARER_NAME if speaker == "wearer" else name
         if not name:
             p = memory.person_by_speaker(speaker)
             name = p["name"] if p else ""
@@ -533,6 +618,9 @@ class Kin:
             if self.sim:
                 self.sim.set_rssi(-50)
             self._far_since, self._wander_alerted = 0.0, False
+        elif cmd == "enroll" and rest:
+            role, _, name = rest.partition(" ")       # e.g. "enroll wearer Grandpa Joe", "enroll daughter Sarah"
+            await self.enroll(name.strip() or config.WEARER_NAME, role.strip())
         elif cmd == "s":
             await self.flush()
             print(memory.summary_for_llm())
@@ -581,6 +669,11 @@ class Kin:
         await runner.add_workers(self.task)
         run_task = asyncio.create_task(runner.run())
         await asyncio.sleep(0.5)
+        try:
+            from . import voiceprint
+            await asyncio.to_thread(voiceprint.warm_up)
+        except Exception as e:
+            log.warning("Voice recognition off: %s", e)
         await self.connect_band()
         self._quit = asyncio.Event()
         jobs = [asyncio.create_task(self.chunk_loop()), asyncio.create_task(self.reminder_loop()),
