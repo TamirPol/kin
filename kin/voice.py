@@ -102,7 +102,7 @@ def make_stt():
             settings=DeepgramSTTService.Settings(
                 model="nova-3", language=Language.EN_US, diarize=True, keyterm=_keyterms(),
                 smart_format=True, punctuate=True, numerals=True, interim_results=True,
-                endpointing=int(os.environ.get("KIN_ENDPOINTING_MS", "400")),
+                endpointing=int(os.environ.get("KIN_ENDPOINTING_MS", "300")),
                 utterance_end_ms=int(os.environ.get("KIN_UTTERANCE_END_MS", "1000"))),
         )
     log.warning("No Deepgram key: using typed transcripts (type lines in the terminal).")
