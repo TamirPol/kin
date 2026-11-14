@@ -335,7 +335,7 @@ def check_scam(lines: list[dict]) -> dict | None:
             first = not scam_lock_active()
             set_scam_lock(reason)
         if first:
-            memory.add_alert("scam", f"Possible scam call ({reason}). Purchases locked for 30 minutes.")
+            memory.add_alert("scam", f"Possible scam call ({reason}). Kin warned him not to send money.")
     else:
         say = f"Just a gentle reminder: if anyone asks for money or numbers, let's check with {who} first."
     return {"risk": risk, "reason": reason, "say": _clean_say(say)}

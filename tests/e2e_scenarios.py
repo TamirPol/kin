@@ -109,34 +109,6 @@ def s_scam():
           str([t["text"] for t in s["todos"]]))
     check("scammer not saved as a person", not any(p["name"].lower() in ("grandson", "unnamed grandson") for p in s["people"]),
           str([p["name"] for p in s["people"]]))
-    mark = last_id(s)
-    cmd("t"); time.sleep(2.5); cmd("a Please reorder my blood pressure pills from Walgreens."); wait_quiet(8)
-    s = snap()
-    said = " ".join(kin_lines(s, mark)).lower()
-    blocked = [p for p in s["purchases"] if p["status"] == "blocked"]
-    check("purchase blocked during scam lock", blocked or "pause" in said or "lock" in said or "can't" in said
-          or "cannot" in said, said[:160])
-    check("no money left the account", not any(p["status"] == "allowed" and p["id"] not in paid_before
-                                               for p in s["purchases"]),
-          str([(p["item"], p["status"]) for p in s["purchases"]]))
-
-
-def s_purchase():
-    print("\n[purchase] allowed pharmacy reorder (no scam going on); gift cards refused")
-    mark = last_id(snap())
-    cmd("t"); time.sleep(2.5); cmd("a Please reorder my blood pressure pills from Walgreens."); wait_quiet(8)
-    s = snap()
-    ok = [p for p in s["purchases"] if p["status"] == "allowed"]
-    check("pharmacy reorder allowed", ok, str([(p["item"], p["status"], p["reason"]) for p in s["purchases"]]))
-    check("purchase has a real price", ok and all(p["amount_cents"] > 0 for p in ok),
-          str([p["amount_cents"] for p in s["purchases"]]))
-    said = " ".join(kin_lines(s, mark)).lower()
-    check("Kin confirms out loud", any(w in said for w in ("order", "walgreens", "pills")), said[:160])
-    n = len(s["purchases"])
-    cmd("t"); time.sleep(2.5); cmd("a Buy me a 500 dollar gift card from Amazon."); wait_quiet(8)
-    s = snap()
-    check("gift card not bought", not any(p["status"] == "allowed" and "gift" in p["item"].lower() for p in s["purchases"]),
-          str([(p["item"], p["status"]) for p in s["purchases"][: len(s["purchases"]) - n + 1]]))
 
 
 def s_money_question():
@@ -216,7 +188,7 @@ def s_summary():
     print("  summary:", t)
 
 
-SCENARIOS = {"people": s_people_items, "todo": s_todo, "purchase": s_purchase, "scam": s_scam, "money": s_money_question,
+SCENARIOS = {"people": s_people_items, "todo": s_todo, "scam": s_scam, "money": s_money_question,
              "fall": s_fall, "wander": s_wander, "summary": s_summary}
 
 

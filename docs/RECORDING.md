@@ -1,109 +1,63 @@
-# Recording the demo video (one person + a remote helper)
+# Backup video: 1 minute
 
-## Ship checklist (do this first)
+Under the official rules the video is **optional, ≤ 1 minute, and a backup in case the live demo fails**.
+Record it once it works, by ~5:15, before the 5:30 code freeze. The live demo is the main event: see
+[LIVE_DEMO.md](LIVE_DEMO.md).
 
-- [ ] **Clean slate:** `bash scripts/clean_slate.sh` (with `bash scripts/kin.sh` running; old memory backed up to `kin.db.bak`, voiceprints kept)
-- [ ] **Voice:** `KIN_VOICE=elevenlabs` in `.env` (not `openai`/`say`). Say "Hey Kin, hello" once to check it's Bella.
-- [ ] **Wi-Fi:** stable connection (Deepgram, OpenAI, ElevenLabs and ntfy are all online). Hotspot as backup.
-- [ ] **ntfy:** the helper's phone (and yours) subscribed to an emergency-contact topic. /setup → **send test alert** → it buzzes.
-- [ ] **Family page theme:** pick light or dark and keep it for every take. Browser zoom 125%, full-screen, no other tabs or bookmarks bar.
-- [ ] **Band charged**, mic light solid blue, /test page all green, vexo-open-kit dashboard tab **closed** (one Bluetooth client).
-- [ ] **Earbuds** charged and paired (Kin's voice, see Audio below). Mac notifications off (Focus → Do Not Disturb).
-- [ ] **Devpost fields** pasted from [DEVPOST.md](DEVPOST.md), with the video link added once it's uploaded.
-- [ ] **Repo public**, README screenshots in `docs/img/`, video link in the README, last commit pushed before 6:00 PM.
+## Ship checklist (before 6:00 PM PT)
 
----
+- [ ] **All commits pushed before 6:00** (code freeze ~5:30, then docs only)
+- [ ] **Repo public**, README shows the screenshots in `docs/img/`, plus the video link
+- [ ] **Devpost** (link drops right before 6:00): description, repo URL, 1-min video, tracks **Pipecat (Deepgram)** + **ElevenLabs** only. Text in [DEVPOST.md](DEVPOST.md).
+- [ ] **Clean slate:** `bash scripts/demo_reset.sh` (wipes today, keeps voices and contacts, seeds a morning)
+- [ ] **Voice:** `KIN_VOICE=elevenlabs` (Bella)
+- [ ] **Wi-Fi** stable, phone hotspot ready
+- [ ] **ntfy** subscribed on the phone that will appear on camera. /setup → **Send test alert** → it buzzes.
+- [ ] **Family page:** light or dark, the same for every take. Zoom 125–150%, one tab, full-screen.
+- [ ] **Band charged**, solid blue light, /test all green, vexo-open-kit tab closed
+- [ ] Mac on Do Not Disturb. The phone on camera: Focus **off**, ringer on.
 
-## The setup
+## Setup (one person, ~5 min)
 
-```
-  [tripod phone] ── records POV: wrist, table, laptop screen edge, your face (room audio)
-        │
-  you + band ───── ~30 cm ──── laptop speakers: the helper on WhatsApp desktop, or scripts/actors.sh
-                                laptop screen: family page (recorded with Cmd-Shift-5)
-  Kin's voice ──► earbuds (so the band doesn't hear Kin) + captured on the Mac (see Audio)
-  helper (remote) ── WhatsApp video call on the LAPTOP, ntfy on HER phone = "the daughter"
-```
+- **Tripod phone** (or one propped on books): landscape 1080p, showing the wrist, the laptop at an angle,
+  and the notification phone on the table. Lock focus and exposure.
+- **Screen recording** of the family page: Cmd-Shift-5 → Record Selected Portion. Clap once on camera at
+  the start so the two recordings line up.
+- **Kin's voice through the laptop speakers.** Kin's echo gate drops its own voice coming back through the
+  band, so the tripod phone can record Kin, the actors and you in one take. Earbuds aren't needed.
+- **Actors:** with the family page focused, press **1** for Sarah and **2** for the scam call (the same lines
+  as `bash scripts/actors.sh sarah|scam`, from the laptop speakers). Hold the band ~20 cm from the speaker.
+- **WhatsApp helper option:** run the call on **WhatsApp desktop on the laptop**, so her voice comes out of
+  the laptop speakers near the band. She reads Sarah's lines in her own voice instead of pressing 1, and
+  holds up her phone when the alert reaches it (subscribe her phone to the Sarah contact's ntfy topic).
+  The scam still comes from hotkey **2**: a different voice, so it isn't mistaken for Sarah.
 
-- **Phone on a tripod** (or propped on books): landscape, 1080p/30. The frame shows your wrist and the table,
-  with the laptop at an angle. Lock exposure and focus (long-press on iPhone).
-- **Screen recording of the family page:** Cmd-Shift-5 → Record Selected Portion (the browser window) →
-  Options → Microphone: see Audio. Start it before the phone, then clap once on camera so the two line up.
-- **The helper on WhatsApp:** run the call on **WhatsApp desktop on the laptop**, so her voice comes out of
-  the laptop speakers next to the band, the same place `actors.sh` plays from. The phone stays free to film.
-  - **She plays Sarah**, reading the lines below in her own voice. Kin hears a real second voice.
-  - **She is also the family**: her phone gets the ntfy push. When the scam happens, she holds her phone up to
-    her camera and the buzz is in the WhatsApp window you're screen-recording. That's the X-factor shot.
-  - **The scam caller:** `bash scripts/actors.sh scam` (a different, male voice, so Kin doesn't think it's
-    Sarah). Or she reads it with the call on speaker.
-  - **No helper?** `bash scripts/actors.sh sarah` and `scam` do both parts from the laptop speakers.
+## Shot list (≤ 60 s)
 
-**Helper's cue card**
-- Sarah: "Hi Dad, it's Sarah!" … "I just wanted to tell you, I'm moving to Oakland next week for my new job." … "I'll call you on Sunday."
-- *(Wait for the scam. When your phone buzzes, hold it up to the camera for 3 seconds.)*
-
-### Audio: getting Kin's voice clearly
-
-The band must not hear Kin, or Kin's own words get transcribed as another speaker. So Kin talks into
-**earbuds**, which is how it was tested on the real band. But then the tripod phone can't hear Kin, and
-Cmd-Shift-5 records a microphone, not the Mac's own sound. Pick one, and test it in a 10-second take first:
-
-1. **Best: record the Mac's sound.** Install the free **BlackHole 2ch** audio driver. In Audio MIDI Setup,
-   create a Multi-Output Device (earbuds + BlackHole) and set it as the Mac's output. In Cmd-Shift-5 →
-   Options, choose BlackHole as the microphone. The screen recording then carries Kin, the helper and actors,
-   clean, while you hear Kin in the earbuds. Your own voice comes from the phone track. *(~5 min, needs an
-   install, so do it before the deadline crunch.)*
-2. **Quick: laptop speakers for Kin.** Unpair the earbuds and the phone hears everything naturally. Keep the
-   band as far from the speakers as the actors allow, and check the family page after the take. If Kin's
-   sentences show up as someone else's, go back to option 1.
-3. **Captions.** Kin's words always appear in the conversation on the family page, so caption every Kin
-   line in the edit anyway. It helps judges watching muted.
-
----
-
-## Shot list (≤ 2:00)
-
-| # | Time | Picture | Sound / text on screen |
+| # | Time | Picture | Sound / caption |
 |---|---|---|---|
-| 1 | 0:00–0:07 | **Phone:** close-up of the band on your wrist, blue light on, slow push-in | VO: "For people with early memory loss, the hardest part isn't forgetting how to do things. It's forgetting people." |
-| 2 | 0:07–0:13 | **Phone:** wide shot of you at the table. Title card. | **Kin: a memory companion on the Vexo band.** VO: "The person wearing it never touches a screen." |
-| 3 | 0:13–0:30 | **Phone** wide, cut to **screen**: lines appearing live | Sarah (helper): "Hi Dad, it's Sarah! … moving to Oakland next week … I'll call you on Sunday." You: "I'm putting my keys in the kitchen drawer. I'll call the dentist tomorrow." |
-| 4 | 0:30–0:42 | **Screen:** after the 6 s pause, zoom (in the edit) on the Sarah card, the dentist to-do, keys → kitchen drawer, "Today so far" | VO: "Kin only keeps what matters, and it knows who said it." Text: **importance 0–3 · voiceprints** |
-| 5 | 0:42–0:55 | **Phone:** tight shot of the double-tap. "Who was that?" | Kin: "That was Sarah, your daughter. She's moving to Oakland next week." Caption it. |
-| 6 | 0:55–1:05 | **Phone:** no tap. "When is she calling?" … "Thanks." Then "Hey Kin, where are my keys?" | Kin: "On Sunday." … "In the kitchen drawer." Text: **conversation mode · "Hey Kin"** |
-| 7 | 1:05–1:15 | **Phone:** double-tap, "Reorder my blood pressure pills from Walgreens." **Screen:** green purchase row | Kin: "Done. I ordered…" Text: **Stripe test mode · family limit $50** |
-| 8 | 1:15–1:35 | **Phone:** laptop speakers play the scam (`actors.sh scam`). **Screen:** the scam alert. **WhatsApp window:** the helper holds up her buzzing phone. | Scammer: "…two thousand dollars for bail… gift cards… don't tell Mom." Kin: "This sounds like a scam…" Text: **The family's phone, live** |
-| 9 | 1:35–1:43 | **Phone:** double-tap, "Buy a two hundred dollar gift card." **Screen:** red blocked row | Kin: "I've paused all purchases…" |
-| 10 | 1:43–1:52 | **Screen:** scroll the family page: Today so far, people, alerts | VO: "Six AI agents, a real band, and a family that knows their dad is okay." |
-| 11 | 1:52–2:00 | End card | **Built on Vexo · Pipecat · Deepgram · OpenAI · ElevenLabs · Gemini 4 · Stripe** · **github.com/TamirPol/kin** |
+| 1 | 0:00–0:05 | Close-up of the band on the wrist, blue light on | Caption: **Kin: a memory companion on the Vexo band** |
+| 2 | 0:05–0:17 | Wide shot: press **1**. Sarah talks from the laptop. Cut to the screen: her lines appear live. | Sarah: "Hi Dad, it's Sarah! … I'm moving to Oakland next week for my new job." |
+| 3 | 0:17–0:27 | Wrist to the mouth: **"Hey Kin, who was that?"** | Kin: *"That was Sarah, your daughter. She's moving to Oakland next week."* Caption it. |
+| 4 | 0:27–0:42 | Press **2**. The scam call plays. Kin cuts in. **The phone on the table lights up** (push-in or a cut to it). | Scammer: "…two thousand dollars for bail… gift cards… don't tell Mom." Kin: *"Hold on, that sounds like someone asking for money…"* Caption: **The family's phone, live** |
+| 5 | 0:42–0:52 | Screen: the family page goes **red, "Grandpa Joe may not be OK"**, then scroll to **Today so far** | Caption: **Scam caught · warned out loud · family alerted** |
+| 6 | 0:52–1:00 | End card | **Pipecat · Deepgram · OpenAI · ElevenLabs** on a Vexo band · **github.com/TamirPol/kin** |
 
-Optional inserts if you're under time: the fall check (drop the band onto a cushion → "Are you okay?" →
-double-tap, and the helper's phone buzzes), or glasses appearing on the table with a Gemini photo (run Kin
-with `--webcam 0`).
+Before shot 2, say "Thanks, Kin" or wait 10 s, so Kin is back to listening when the scam starts.
+Pause ~6 s after Sarah so the chunk is saved. (A double-tap or "Hey Kin" also saves it right away.)
 
-**Phone notification close-up (insert):** if the WhatsApp shot is too small, record your own phone's screen
-(Control Center → Screen Recording) while /setup → **send test alert** fires, and cut 2 s of the banner into shot 8.
+## Retakes
 
-## Retake plan
+- Record **3 takes**, running `bash scripts/demo_reset.sh` between them. The scam leaves the page red and
+  memory piles up, so reset every time.
+- A take counts if shots 2–4 worked. Re-shoot the band close-up and the phone banner separately and cut them in.
+- **Band misbehaving:** `KIN_DB=video.db KIN_NTFY_IN_SIM=1 .venv/bin/python -m kin.app --demo --stay`
+  plays the whole story on a pretend band with push alerts on. Screen-record it and caption it **"simulated band."**
 
-- Record **3 full takes** back to back. Between takes run `bash scripts/clean_slate.sh` and wait for Kin to
-  restart (~5 s). Voiceprints are kept, so Sarah and you are still recognized.
-- A take is usable if shots 3–8 worked. Fix anything else with inserts. Re-record single beats (a clean
-  double-tap close-up, the phone banner, the VO) afterwards. They don't need to be the same take.
-- After the **scam**, purchases stay locked for 30 minutes. Always clean-slate before the next take.
-- **Band misbehaving** (won't connect, missed taps after 2 tries): switch to
-  `KIN_DB=video.db KIN_NTFY_IN_SIM=1 .venv/bin/python -m kin.app --demo --stay` (the whole story on a
-  pretend band, with push still on). Record the screen only, and caption it **"simulated band."** Don't
-  pass it off as the real band.
-- Record the **voice-over last** with the phone's Voice Memos, mouth 20 cm away, in a quiet corner.
+## Cut it in 10 minutes (iMovie / CapCut)
 
-## Cut it in 15 minutes (iMovie; CapCut is the same idea)
-
-1. *(2 min)* New Movie, then import the phone clip, the screen recording, the VO and the end card (a Keynote slide exported as PNG works).
-2. *(3 min)* Put the phone clip on the timeline and line up the screen recording above it using the clap.
-   Use **Cutaway** for the screen shots, or **Picture in Picture** (screen big, phone small in a corner) for shots 3–4 and 8.
-3. *(4 min)* Split (Cmd-B) and delete dead time while Kin thinks. Keep Kin's sentences whole, at normal speed.
-4. *(3 min)* Titles: lower-third captions for every Kin line, plus the tag lines from the shot list.
-5. *(2 min)* Drop the VO under shots 1, 2, 4 and 10. Duck the clip audio to 30% under the VO.
-6. *(1 min)* Check it's **≤ 2:00**. Over time? Cut shot 9, then 6, then the cashier. Share → File → 1080p.
-   Upload to YouTube as **Unlisted**, then paste the link into Devpost and the README.
+1. Import the phone clip and the screen recording, and line them up on the clap.
+2. Use Picture in Picture (screen big, phone small) for shots 2 and 5, and Cutaway to the phone for shots 3–4.
+3. Trim dead time while Kin thinks, but keep Kin's sentences whole and at normal speed.
+4. Caption every Kin line (judges may watch muted). Add the end card.
+5. Check it's ≤ 1:00, then export 1080p, upload to YouTube as **Unlisted**, and paste the link into Devpost and the README.

@@ -20,9 +20,9 @@ AI Relevance & Depth.** Each pitch beat below is tagged with the criterion it an
 > She's moving to Oakland next week."
 >
 > And it's a safety net. It interrupts a scam call mid-sentence, even when it can only hear your half of the
-> call, and locks your spending. It checks on you after a fall. And it buzzes your daughter's phone. *(X factor)*
+> call, and tells you not to send a cent. It checks on you after a fall. And it buzzes your daughter's phone. *(X factor)*
 >
-> Under the hood there are six cooperating AI agents on real hardware: a Pipecat voice agent with eight
+> Under the hood there are six cooperating AI agents on real hardware: a Pipecat voice agent with seven
 > tools, a memory brain, a scam detector, Gemini 4 vision, on-device voiceprints and a daily-summary writer.
 > End-to-end tests pass 32 of 32. *(Technical, AI depth)*
 >
@@ -64,18 +64,17 @@ bash scripts/clean_slate.sh         # fresh memory (backup kept as kin.db.bak); 
 | 0:45 | **Double-tap**, "Who was that?" | "That was Sarah, your daughter. She's moving to Oakland next week." | Status: talking with Kin | Technical |
 | 0:52 | Follow-up, no tap: "When is she calling?" | "On Sunday." (conversation mode) | | AI depth |
 | 0:58 | "Thanks." Then "**Hey Kin**, where are my keys?" | "In the kitchen drawer." | | Design |
-| 1:05 | *(Stripe)* **Double-tap**, "Reorder my blood pressure pills from Walgreens." | "Done. I ordered…" | Purchases: green, `pi_…` (or `sim_…`) | Stripe |
-| 1:15 | `bash scripts/actors.sh scam` | "Grandpa? It's your grandson… two thousand dollars for bail… gift cards… don't tell Mom." | Kin interrupts with a calm warning. **The phone buzzes.** Alert: scam, purchases paused. | **X factor** |
-| 1:35 | **Double-tap**, "Buy a two hundred dollar gift card." | "I've paused all purchases for a little while to keep you safe." | Purchases: red, blocked | Stripe |
+| 1:15 | `bash scripts/actors.sh scam` | "Grandpa? It's your grandson… two thousand dollars for bail… gift cards… don't tell Mom." | Kin interrupts: "please don't send anything until you've checked with Sarah." **The phone buzzes.** The page turns red: "may not be OK." | **X factor** |
+| 1:30 | **Fall:** drop the band onto a cushion, then say **"I'm fine"** | "Are you okay? Say I'm fine, or double-tap your band." … "Okay, glad you're alright." | A fall alert, but **no phone buzz**: he answered | Design |
 | 1:45 | Point at "Today so far" | Read one line aloud | Summary mentions Sarah and the scam call, calmly | Design |
 | 1:50 | Wrap | "Small talk forgotten, family remembered, scammer stopped, and I never touched a screen." | Whole page | Presentation |
 
-**Order matters:** purchase **before** the scam. The lock lasts 30 minutes and the family page can't clear it,
-so to reset, run `clean_slate.sh` (it restarts Kin).
+**Fall check:** after Kin asks, the wearer has 10 s. "I'm fine" or a double-tap clears it, and taps from the
+impact itself are ignored. "No," "I'm not fine," "help" or "I fell" alert the family immediately. The phones
+buzz only if he's not okay or doesn't answer. **If there's time:** say "Where am I? I don't know where I am" to
+show the confusion reassurance and alert. Reset between runs with `bash scripts/demo_reset.sh`.
 
-**If there's time:** drop the band onto a cushion. Kin says "Are you okay? Double-tap if you're fine," the
-phone buzzes, you double-tap, and Kin says "Glad you're alright." Or say "Where am I? I don't know where I
-am" to show the confusion reassurance and alert.
+*The exact 2:00 + 1:00 Q&A version for judging is in [LIVE_DEMO.md](LIVE_DEMO.md).*
 
 ### Fallbacks
 
@@ -85,7 +84,7 @@ am" to show the confusion reassurance and alert.
 | Double-tap missed | Say "Hey Kin, …" instead. Or click the test buttons on /test. | |
 | Wrong speaker label | Keep going. Answers come from what was said. | |
 | **Band or Wi-Fi gone** | `KIN_DB=demo.db .venv/bin/python -m kin.app --demo --stay` runs the whole story (Sarah, keys, dentist, two questions, scam, fall) on a pretend band and keeps the family page up. | "This is the exact same pipeline, fed by a pretend band." |
-| No internet at all | `DEEPGRAM_API_KEY= OPENAI_API_KEY= ELEVENLABS_API_KEY= GEMINI_API_KEY= STRIPE_SECRET_KEY= KIN_DB=offline.db .venv/bin/python -m kin.app --demo --stay` (rule-based memory, Mac voice, simulated Stripe, no push) | "Every cloud piece has an offline fallback." |
+| No internet at all | `DEEPGRAM_API_KEY= OPENAI_API_KEY= ELEVENLABS_API_KEY= GEMINI_API_KEY= KIN_DB=offline.db .venv/bin/python -m kin.app --demo --stay` (rule-based memory, Mac voice, no push) | "Every cloud piece has an offline fallback." |
 | Everything | Play the video. | |
 
 ---
@@ -114,7 +113,7 @@ is this?" in front of your grandson costs dignity. A band is always on you, the 
 gives us body signals a pocketed phone doesn't: free-fall, and distance from home through Bluetooth signal strength.
 
 **4. Business model?**
-Caregivers pay: a monthly subscription (~$29/month, *estimate*) for the family page, alerts and guardrails,
+Caregivers pay: a monthly subscription (~$29/month, *estimate*) for the family page, alerts and scam protection,
 like a medical-alert pendant. The channel is B2B2C: memory clinics prescribe it at an MCI diagnosis, and long-term-care
 insurers and Medicare Advantage plans cover it as fall and fraud risk reduction. Then memory-care facilities
 pay per resident. Over-60s reported ~$4.9B in fraud losses in 2024 *(FBI IC3)*, so one blocked scam pays for years.
@@ -123,12 +122,12 @@ pay per resident. Over-60s reported ~$4.9B in fraud losses in 2024 *(FBI IC3)*, 
 Bee and the AI-pendant category record your day for productivity summaries. They're built for intact memory,
 and they keep everything. Kin forgets on purpose and answers with one gesture. CrossSense and MemPal target
 the same population but lean on smart glasses, a screen or a phone app. Kin needs no screen for the wearer,
-and it **acts**: it interrupts scams on either side of a call, locks spending, checks in after falls and pushes alerts to family.
+and it **acts**: it interrupts scams on either side of a call, checks in after falls and pushes alerts to family.
 *(Check these comparisons before you say them. Don't overclaim about products you haven't used.)*
 
 **6. What's real and what's mocked?**
 Real: the Vexo band over BLE, Pipecat, Deepgram streaming, the OpenAI brain, agent and summarizer, ElevenLabs,
-Gemini vision, on-device voiceprints, ntfy push and Stripe PaymentIntents. Mocked or limited: Stripe is
-**test mode** with a test card. The merchant list and price table are hard-coded. The "home base" is a laptop.
+on-device voiceprints and ntfy push (Gemini vision is built but not demoed). Limited: the "home base" is a
+laptop, and Kin never buys anything or moves money, by design. It only warns and alerts.
 `--demo` is a scripted run on a simulated band, used only as a fallback. Tests: e2e 32/32 drives a real Kin on a
 pretend band with real Deepgram and OpenAI.

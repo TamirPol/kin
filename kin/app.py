@@ -439,12 +439,15 @@ class Kin:
         has finished asking. Only no answer alerts the family's phones."""
         memory.add_alert("fall", f"Possible fall detected for {config.WEARER_NAME}. Checking in.")
         self.publish_status(note="Possible fall: checking in")
+        self._fall_listening = False                        # taps from the impact itself don't count
         await self.router.speak("Are you okay? Say I'm fine, or double-tap your band.")
         t0 = time.time()
         await asyncio.sleep(0.5)
         while self.speaking and time.time() - t0 < 10:      # the countdown starts once the question is heard
             await asyncio.sleep(0.2)
+        self._fall_listening = True
         await asyncio.sleep(FALL_WAIT)
+        self._fall_listening = False
         memory.add_alert("fall_emergency", f"No response after a possible fall. Family should check on "
                                            f"{config.WEARER_NAME} now.")
         await self.router.speak("I'm letting your family know.")
@@ -452,9 +455,22 @@ class Kin:
     def fall_check_active(self) -> bool:
         return bool(self._fall_task and not self._fall_task.done())
 
+    async def fall_not_ok(self, said: str):
+        """'No' / 'I'm not fine' / 'help' after a fall: alert the family right away."""
+        if not self.fall_check_active():
+            return
+        self._fall_task.cancel()
+        memory.add_alert("fall_emergency", f"{config.WEARER_NAME} said they're not okay after a possible fall "
+                                           f"(\"{said[:60]}\"). Please check on them now.")
+        log.warning("Fall check: NOT okay (%s)", said)
+        await self.router.speak("I'm getting your family now. Stay where you are, help is coming.")
+
     async def fall_ok(self, how: str = "double-tapped"):
         """The wearer answered the fall check."""
         if not self.fall_check_active():
+            return
+        if how == "double-tapped" and not getattr(self, "_fall_listening", False):
+            log.info("(tap ignored: it came from the fall itself, before Kin asked)")
             return
         self._fall_task.cancel()
         memory.add_alert("fall_ok", f"{config.WEARER_NAME} {how}: they are fine.")
@@ -600,7 +616,7 @@ class Kin:
 
     async def money_watch(self, speaker: str, text: str):
         """Money in a conversation (either side; on a phone call the band mostly hears the wearer):
-        warn out loud right away, alert the family, pause purchases. At most once per 2 minutes."""
+        warn out loud right away and alert the family. At most once per 2 minutes."""
         if not self.MONEY_SAY.search(text) or time.time() - getattr(self, "_warned_scam", 0) < 120:
             return
         self._warned_scam = time.time()
@@ -611,7 +627,7 @@ class Kin:
         except Exception:
             pass
         memory.add_alert("scam", f"Money came up in a conversation with {config.WEARER_NAME} "
-                                 f"(\"{text[:80]}\"). Kin warned him and paused purchases.")
+                                 f"(\"{text[:80]}\"). Kin warned him not to send money.")
         log.warning("SCAM: money talk: %s", text)
         await self.router.speak(f"Hold on, that sounds like someone asking for money. Please don't send anything "
                                 f"until you've checked with {who}. I've let them know.")

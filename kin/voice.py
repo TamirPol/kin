@@ -31,6 +31,8 @@ log = logging.getLogger("kin.voice")
 import re as _re
 FINE = _re.compile(r"\b(i'?m|i am|im)\s+(fine|ok(ay)?|alright|all right|good|not hurt)\b|\b(yes|yeah)\b.{0,12}\b(fine|ok(ay)?)\b|"
                    r"^\W*(fine|okay|ok|all good|i'?m good)\W*$", _re.I)
+NOT_FINE = _re.compile(r"^\W*no\b|\bnot (fine|ok(ay)?|alright|all right|good)\b|\bhelp\b|\bi (fell|fall|can'?t get up)|"
+                       r"\b(hurt|pain|bleeding|dizzy)\b|\bcall (someone|sarah|my|911|an ambulance)", _re.I)
 FILLER = _re.compile(r"^\W*(yeah|yes|yep|yup|okay|ok|mm+|hmm+|uh+|um+|uh huh|right|sure|alright|cool|wow|oh)\W*$", _re.I)
 
 
@@ -143,6 +145,9 @@ class KinRouter(FrameProcessor):
     async def _on_sentence(self, speaker: str, text: str, name: str = ""):
         from .app import WAKE, CLOSERS
         woke = False                                         # "Hey Kin, ..." is always the wearer talking to Kin
+        if self.app.fall_check_active() and NOT_FINE.search(text):
+            await self.app.fall_not_ok(text)                 # "no / I'm not fine / help": family alerted now
+            return
         if self.app.fall_check_active() and FINE.search(text):
             await self.app.fall_ok("said they're fine")      # "I'm fine" answers the fall check, like a double-tap
             return
@@ -264,10 +269,9 @@ How to answer:
 - If they sound confused or lost ("where am I?", "what's happening?"): stay calm and reassuring, tell them who
   they are and something familiar from today, suggest sitting down, and use alert_family so someone checks on them.
 - If they feel lonely or sad: be warm, mention someone who cares (from memory), offer to remind them to call.
-- Money: only use the purchase tool when they clearly ask you to buy or reorder a product for themselves. If someone
-  asked them for money (even family) or they ask whether to send money, kindly tell them not to send anything until
-  they've called that person back on a number they already know, or checked with family. Never help with gift
-  cards, wire transfers or giving out card numbers.
+- Money: you never buy or send anything. If someone asked them for money (even family) or they ask whether to send
+  money, kindly tell them not to send anything until they've called that person back on a number they already
+  know, or checked with family. Never help with gift cards, wire transfers or giving out card numbers.
 - When they say they've done a to-do, mark it done with complete_todo.
 
 What you remember:
@@ -334,20 +338,6 @@ def make_llm_parts(app):
                 done.append(t["text"])
         await params.result_callback({"done": done} if done else {"not_found": True})
 
-    async def purchase(params):
-        a = params.arguments
-        try:
-            from . import safety
-            amount = int(a.get("amount_cents") or 0)
-            if amount <= 0:                                 # the model often doesn't know the price: estimate it
-                est = await asyncio.to_thread(safety.parse_purchase_request,
-                                              f"reorder {a['item']} from {a['merchant']}")
-                amount = int((est or {}).get("amount_cents") or 0) or 1500
-            r = await asyncio.to_thread(safety.purchase, a["item"], a["merchant"], amount)
-        except ImportError:
-            r = {"status": "blocked", "reason": "purchasing is not set up yet"}
-        await params.result_callback(r)
-
     tools = [
         FunctionSchema("who_is", "Who a person is, by name; with no name, who the wearer is talking to now.",
                        {"name": {"type": "string"}}, [], handler=who_is),
@@ -365,12 +355,6 @@ def make_llm_parts(app):
         FunctionSchema("complete_todo", "Mark one of the wearer's to-dos as done when they say they did it.",
                        {"text": {"type": "string", "description": "words from the to-do"}}, ["text"],
                        handler=complete_todo),
-        FunctionSchema("purchase", "ONLY when the wearer explicitly asks Kin to buy or reorder a product for "
-                       "themselves (e.g. pills, groceries) from a store. NEVER for sending, transferring or "
-                       "giving money to a person, and never for 'should I send money?' questions.",
-                       {"item": {"type": "string"}, "merchant": {"type": "string"},
-                        "amount_cents": {"type": "integer"}}, ["item", "merchant", "amount_cents"],
-                       handler=purchase),
     ]
     context = LLMContext(messages=[], tools=tools)
     return llm, LLMContextAggregatorPair(context)

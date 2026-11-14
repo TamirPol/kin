@@ -3,6 +3,29 @@
 > Before pasting: check the **Evidence** table at the bottom. Market figures are marked *(source)* or
 > *(estimate)*. Say them that way.
 
+## The official Devpost fields (due 6:00 PM PT; the link drops right before)
+
+| Field | What to paste |
+|---|---|
+| **Project description** (what it does + how it works) | The short version just below, then "What it does" and "How we built it" from this file |
+| **Public GitHub repo with README** | https://github.com/TamirPol/kin |
+| **Video** (≤ 1 min, optional backup) | *(YouTube unlisted link)*. Plan: [RECORDING.md](RECORDING.md) |
+| **Sponsor tracks entered** | **Best Voice Use Case on Pipecat (Deepgram)** · **Best ElevenLabs Project** |
+
+**Don't enter** Best Use of Gemini 4: vision isn't in the live demo. Mention it only under "Also built."
+
+### Short project description (paste first)
+
+Kin is a memory companion for people with early memory loss, built on the Vexo band. It listens all day and
+keeps only what matters: people, plans, health instructions and where things are. Small talk is scored zero and
+forgotten. Ask out loud, "Hey Kin, who was that?", and it answers in a calm ElevenLabs voice: "That was Sarah,
+your daughter. She's moving to Oakland next week." If a scam call asks for bail money or gift cards, Kin
+interrupts mid-call, tells him not to send anything, and pushes an alert to the family's phones. A live family page turns red
+("may not be OK") and writes a plain "Today so far" summary. **How it works:** band audio over Bluetooth →
+a Pipecat pipeline → Deepgram streaming STT with diarization → our router (voiceprints + loudness decide who
+spoke) → an OpenAI memory brain that scores importance 0–3 into SQLite, a scam watcher on every sentence, and,
+when asked, an OpenAI agent with 7 tools → ElevenLabs TTS. The wearer never touches a screen.
+
 ---
 
 ## Project name
@@ -32,7 +55,7 @@ family when something's wrong. "Build beyond the screen" fit exactly: the wearer
 ## What it does
 
 Kin runs on a **Vexo band** and a laptop as the home base. The band has no speaker, so Kin talks through
-the laptop or Bluetooth earbuds.
+the laptop speakers (an echo gate drops Kin's own voice coming back through the band) or Bluetooth earbuds.
 
 **For the wearer (no screen):**
 - **Remembers what matters.** Everything the band hears is transcribed with speaker labels and scored
@@ -43,7 +66,8 @@ the laptop or Bluetooth earbuds.
   never audio) recognize voices across days. Kin learns the wearer's voice automatically and names other
   voices when they're introduced ("Hi Dad, it's Sarah"). An optional 10-second enrollment on the setup page
   makes it more reliable.
-- **Answers out loud.** Double-tap the band, or say **"Hey Kin, …"**. *"Who was that?"* → *"That was Sarah,
+- **Answers out loud.** Say **"Hey Kin, …"** or double-tap the band (two quick single taps also count,
+  because taps through the strap fabric are unreliable). *"Who was that?"* → *"That was Sarah,
   your daughter. She's moving to Oakland next week."* **Conversation mode** keeps listening for follow-ups
   ("and her son?") for ~9 s after each answer and ends on "thanks." It never guesses a name.
 - **Gentle reminders.** Kin brings up a due to-do when the room is quiet ("Just a gentle reminder: you
@@ -54,20 +78,20 @@ the laptop or Bluetooth earbuds.
 - **Scam interruption, both sides of the call.** A scam detector checks every sentence (heuristics plus
   an LLM second opinion), and a **money-talk detector also listens to the wearer's side**. On a phone call
   the band mostly hears the wearer ("you need two thousand dollars for bail?"). Kin speaks a calm warning
-  ("Please don't send anything until you've checked with Sarah"), alerts the family and **pauses purchases
-  for 30 minutes**. Scammers are never saved as people, and their requests never become to-dos.
-- **Fall check.** Band free-fall → *"Are you okay? Double-tap your band if you're fine."* No answer in 15 s
-  → an emergency alert.
+  ("Please don't send anything until you've checked with Sarah"), and alerts the family. **Kin never buys anything or
+  sends money.** Scammers are never saved as people, and their requests never become to-dos.
+- **Fall check.** Band free-fall → *"Are you okay? Say I'm fine, or double-tap your band."* The wearer has
+  **10 s, counted after Kin finishes asking**. "I'm fine" or a double-tap clears it. Taps from the impact itself
+  are ignored. **"No," "I'm not fine," "help" or "I fell"** alert the family immediately ("I'm getting your
+  family now. Stay where you are."). **Phones only buzz if he's not okay or doesn't answer**, so a dropped band
+  doesn't scare the family.
 - **Wander alert.** The band's Bluetooth signal gets weak for 10 s, or the link drops for 30 s → alert. Kin
   keeps reconnecting past the band's 2-minute window.
 - **Confusion alert.** If the wearer sounds lost ("where am I?"), Kin reassures them with who they are and
   something familiar from today, and quietly alerts the family.
 - **Phone push alerts** through ntfy to each emergency contact (each gets a private random topic).
   Messages are deliberately generic: no transcripts, names, amounts or places go through ntfy.
-- **Guarded purchases (Stripe).** *"Reorder my blood pressure pills from Walgreens"* → a Stripe test-mode
-  PaymentIntent, only for approved merchants, under the family's per-purchase limit and daily cap, never
-  gift cards, crypto or wires, and never during a scam lock. The rules are in Python, below the LLM.
-- **Vision (Gemini 4).** A camera feeds frames to Gemini 4. Personal items (keys, glasses, pill bottle…) are
+- *Also built (not demoed):* **vision (Gemini 4).** A camera feeds frames to Gemini 4. Personal items (keys, glasses, pill bottle…) are
   logged with plain-language locations and a photo, so *"Where are my glasses?"* works even if you never said.
 
 **For the family (the only screen):**
@@ -88,10 +112,10 @@ Pipecat pipeline:  BandAudioSource → Deepgram STT (nova-3, diarized, word timi
    KinRouter: who's speaking = vote(voiceprint, loudness at the wrist, context)
      LISTEN → memory.add_line → money_watch + safety.check_scam (every sentence)
             → chunk (6 s pause / 30 s) → brain.digest (OpenAI structured JSON, importance 0-3) → SQLite
-     ASK (double-tap / "Hey Kin") → OpenAI LLM + 8 tools → ElevenLabs TTS → laptop / earbuds
+     ASK (double-tap / "Hey Kin") → OpenAI LLM + 7 tools → ElevenLabs TTS → laptop / earbuds
                                    (conversation mode: follow-ups for 9 s)
    vision.py: camera → change detection → Gemini 4 → items + photo → memory
-   safety.py: guardrails → Stripe PaymentIntent (test mode)
+   safety.py: scam heuristics + LLM second opinion
    summary.py: "Today so far" (OpenAI) · notify.py: ntfy push per emergency contact
    dashboard.py: FastAPI + WebSocket → family page, /setup, /test
 ```
@@ -105,15 +129,14 @@ phone alerts subscribe to.
 | **Vexo band** | The only thing the wearer touches. Opus mic over BLE (decoded with vexo-open-kit, following its Bluetooth contract), `double-tap` (ask / "I'm fine"), `free-fall` (fall check), link RSSI (wander alert), auto-reconnect, and a tap threshold tuned on the real band (`KIN_TAP_G`). |
 | **Pipecat** | The backbone pipeline. Our custom `KinRouter` frame processor sends each finished sentence to memory or to the LLM, handles the wake phrase and conversation mode, and keeps the raw conversation out of the LLM context. Tools use `FunctionSchema`, and speaking speed changes live via `TTSUpdateSettingsFrame`. |
 | **Deepgram** | Streaming STT, `nova-3-general` with diarization, smart format, interim results and model-improvement opt-out. Word timings let Kin measure each speaker's loudness and cut each speaker's audio for voiceprints. |
-| **OpenAI** | (1) The importance brain (strict JSON schema: people, facts, to-dos, items, speaker names). (2) The voice agent with 8 tools. (3) The scam second opinion. (4) The "Today so far" writer. |
+| **OpenAI** | (1) The importance brain (strict JSON schema: people, facts, to-dos, items, speaker names). (2) The voice agent with 7 tools. (3) The scam second opinion. (4) The "Today so far" writer. |
 | **ElevenLabs** | Kin's warm, calm voice (Bella) for answers, reminders, scam warnings and fall check-ins, with adjustable speed. `KIN_VOICE=openai` saves characters while testing. |
-| **Gemini 4** | `gemini-4-hydrogen` vision with a JSON response schema: frame → `{item, location, confidence}` in older-adult-friendly words ("on the arm of the blue sofa"). Only called when the scene changes and settles. Item names are normalized so voice and vision agree ("car keys" = "keys"). |
-| **Stripe** | A test-mode `PaymentIntent` with item, merchant and agent metadata, only after every deterministic guardrail passes. Every attempt, allowed or blocked, is logged and shown to the family. |
+| **Gemini 4** *(also built)* | `gemini-4-hydrogen` vision with a JSON response schema: frame → `{item, location, confidence}` in older-adult-friendly words ("on the arm of the blue sofa"). Only called when the scene changes and settles. Item names are normalized so voice and vision agree ("car keys" = "keys"). |
 | **ntfy** | Free, open-source push notifications to each emergency contact's phone. |
 
 **Graceful fallbacks:** no Deepgram key gives typed transcripts. No OpenAI key gives rule-based memory and
-answers. No ElevenLabs key uses OpenAI TTS or the Mac voice, no Stripe key simulates charges, and no Gemini
-key turns vision off. `python -m kin.app --demo` runs the whole story with no band and no keys.
+answers. No ElevenLabs key uses OpenAI TTS or the Mac voice, and no Gemini key turns
+vision off. `python -m kin.app --demo` runs the whole story with no band and no keys.
 
 ## Challenges we ran into
 
@@ -129,16 +152,16 @@ key turns vision off. `python -m kin.app --demo` runs the whole story with no ba
 - **Real hardware.** Missed taps (the threshold went from 1.4 g to 1.0 g, plus debouncing), Opus decoder
   drift after reconnects, Bluetooth earbud pops (a high-latency buffer and a silent lead-in), and one
   Bluetooth client per band.
-- **An agent that can spend money.** Every limit is deterministic Python *below* the LLM, and the purchase
-  tool's description forbids "sending money to a person."
+- **Falls without false alarms.** The impact itself registers as taps, so a fall could "answer" its own
+  check. Taps are ignored until Kin has asked, and the 10 s countdown starts only once the question is heard.
 
 ## Accomplishments that we're proud of
 
 - A full product, not a demo script: onboarding, daily use, safety net and a family view, all on a wearable with no screen.
 - **Tested like a product:** an end-to-end scenario suite that drives a real Kin (pretend band, real
   Deepgram and OpenAI) and checks memory plus the dashboard API: **32/32**. Brain eval **12/12**. Scam eval:
-  **14/14 scams caught, 0/12 false alarms** with heuristics alone. Unit tests: safety 50, vision 50,
-  voiceprint 14, all passing.
+  **14/14 scams caught, 0/12 false alarms** with heuristics alone. Unit tests for safety, vision
+  (50) and voiceprints (14), all passing.
 - A scam warning that interrupts *during* the call, on either side of it.
 - It never crashes for a missing key, so it demos anywhere.
 
@@ -146,7 +169,7 @@ key turns vision off. `python -m kin.app --demo` runs the whole story with no ba
 
 - For memory loss, **"I'm not sure"** beats a confident wrong name.
 - The importance filter is the product. Transcription is a commodity, and deciding what's worth keeping isn't.
-- Guardrails for an economic agent belong in code. The model doesn't get to enforce them.
+- Safety rules belong in code. The model doesn't get to enforce them: Kin has no tool that moves money.
 - On a wearable the interaction budget is one gesture and one short sentence back. Everything else is
   the family's screen.
 
@@ -154,8 +177,7 @@ key turns vision off. `python -m kin.app --demo` runs the whole story with no ba
 
 - **Meta glasses: camera + earpiece.** The glasses camera feeds vision (Meta Wearables Device Access Toolkit)
   so Kin sees what you see, and Kin's voice plays privately in your ear.
-- **Caregiver app.** The family page as a phone app with real-time approval of over-limit purchases and
-  family-curated memories ("Remind Dad that Leo starts at Berkeley in August").
+- **Caregiver app.** The family page as a phone app with family-curated memories ("Remind Dad that Leo starts at Berkeley in August").
 - **Face recognition for enrolled family** (a vision hook exists, opt-in only), and voiceprints shared across a family's devices.
 - **Clinical pilot** with a memory clinic: measure fewer repeated questions, fewer caregiver check-in
   calls and scams avoided.
@@ -163,7 +185,7 @@ key turns vision off. `python -m kin.app --demo` runs the whole story with no ba
 
 ## Built with
 
-`python` `pipecat` `deepgram` `openai` `elevenlabs` `gemini` `google-genai` `stripe` `vexo` `bluetooth-le`
+`python` `pipecat` `deepgram` `openai` `elevenlabs` `gemini` `google-genai` `vexo` `bluetooth-le`
 `bleak` `sherpa-onnx` `onnx` `fastapi` `websockets` `sqlite` `ntfy` `opencv` `javascript` `html` `css`
 
 ## Links
@@ -177,7 +199,7 @@ key turns vision off. `python -m kin.app --demo` runs the whole story with no ba
 
 ### Approach & Idea (viability, market, investors, feasibility, creativity)
 - **Who pays: caregivers.** The wearer gets the band, and the adult children pay a subscription for the
-  family page, phone alerts and spending guardrails, the way families already pay for medical-alert pendants.
+  family page, phone alerts and scam protection, the way families already pay for medical-alert pendants.
   Suggested price: **~$29/month** *(estimate)*.
 - **Market.** About **7 million** Americans 65+ live with Alzheimer's, and **11+ million** unpaid family
   caregivers give about **18 billion hours** of care a year *(source: Alzheimer's Association, 2024 Facts &
@@ -197,7 +219,7 @@ key turns vision off. `python -m kin.app --demo` runs the whole story with no ba
 - **Streaming real-time stack:** Deepgram streaming STT with diarization and word timings, a Pipecat pipeline,
   streaming TTS, sub-second routing between listen and ask modes.
 - **On-device ML:** TitaNet speaker embeddings in ONNX through sherpa-onnx (~8 ms per utterance on an M-series laptop).
-- **Tested:** e2e 32/32, brain eval 12/12, scam eval 14/14 with 0 false alarms, 114 unit tests, plus
+- **Tested:** e2e 32/32, brain eval 12/12, scam eval 14/14 with 0 false alarms, unit tests for safety, vision and voiceprints, plus
   `tests/eval_answers.py` for answer quality.
 
 ### Presentation
@@ -216,13 +238,13 @@ real band and a fallback `--demo` mode. See [PITCH.md](PITCH.md).
   can delete any fact.
 
 ### X Factor
-The moment a scam call is interrupted mid-sentence, the purchase lock engages, and the daughter's phone
-buzzes across the room, without the wearer ever touching anything.
+The moment a scam call is interrupted mid-sentence ("please don't send anything until you've checked with
+Sarah") and the daughter's phone buzzes across the room, without the wearer ever touching anything.
 
 ### AI Relevance & Depth (meaningful use of AI agents)
 Six cooperating AI components, each with a narrow job and code-level guardrails:
-1. **Voice agent:** Pipecat + OpenAI with **8 tools** (`who_is`, `find_item`, `get_todos`, `remember`,
-   `complete_todo`, `set_speech_speed`, `alert_family`, `purchase`), conversation mode and a wake phrase.
+1. **Voice agent:** Pipecat + OpenAI with **7 tools** (`who_is`, `find_item`, `get_todos`, `remember`,
+   `complete_todo`, `set_speech_speed`, `alert_family`), conversation mode and a wake phrase.
 2. **Memory brain:** an importance scorer and extractor with a strict JSON schema, eval 12/12.
 3. **Scam detector:** heuristics plus an LLM second opinion (which can't clear an unknown caller asking
    for money under pressure), plus a money-talk watcher on the wearer's side.
@@ -230,17 +252,17 @@ Six cooperating AI components, each with a narrow job and code-level guardrails:
 5. **Voice identity:** on-device voiceprints plus a three-signal speaker vote.
 6. **Family summarizer:** "Today so far," instructed to report safety events exactly and never invent.
 
-The economic agent can act (Stripe), but only through deterministic guardrails it can't override.
+By design Kin has no tool that buys anything or moves money.
 
 ---
 
-## Sponsor prize blurbs
+## Sponsor prize blurbs (tracks entered: Pipecat/Deepgram, ElevenLabs)
 
 ### Best Voice Use Case on Pipecat (Deepgram)
 For someone with early memory loss, voice isn't a convenience. It's the only interface left. Kin is a
 two-mode Pipecat voice agent. It **listens** all day (Deepgram nova-3 diarization and word timings feed a
 memory brain and a speaker vote with voiceprints), and on a double-tap or "Hey Kin" it **answers** (an
-OpenAI agent with 8 tools, then ElevenLabs), with conversation mode for follow-ups. A custom Pipecat
+OpenAI agent with 7 tools, then ElevenLabs), with conversation mode for follow-ups. A custom Pipecat
 `FrameProcessor` routes every sentence to memory or to the LLM and keeps raw conversation out of the LLM
 context. Speaking speed changes live mid-pipeline when the wearer asks to slow down. No screen anywhere.
 
@@ -250,20 +272,9 @@ progress, a possible fall, a face they can't place. We chose a warm voice (Bella
 two short sentences, and let the wearer say "talk slower." The voice that tells you your daughter's name is
 the same one that tells you to hang up on the scammer, and that trust is the point.
 
-### Best Use of Gemini 4
-Gemini 4 (`gemini-4-hydrogen`) is Kin's eyes for the most common memory-loss frustration: *where did I put
-it?* Frames go to Gemini with a structured JSON schema and a prompt written for older adults, and come back as
-items with plain-language locations. Kin calls Gemini only when the scene changes and settles, compares
-landmarks so a rephrased location isn't logged twice, and normalizes names so the vision "car keys" and a
-spoken "keys" match. Every sighting is saved with a photo the family can see.
-
-### Stripe: Best Economic Agent
-Older adults with memory loss are among the most targeted people in the economy, so an agent that spends
-their money has to be safer than they are. Kin orders everyday things by voice and pays with a Stripe
-PaymentIntent, but only after **deterministic guardrails the LLM can't override**: approved merchants only,
-a family-set per-purchase limit and daily cap, never gift cards, crypto or wires, and an automatic
-**30-minute purchase lock after any scam or money-talk alert**. Every attempt, allowed or blocked with a
-reason, shows up on the family page. It's an economic agent built to say no.
+### Also built (tracks not entered)
+- **Gemini 4 vision** (`kin/vision.py`): camera frames → `gemini-4-hydrogen` with a JSON schema → items with
+  plain-language locations and a photo. It has tests (50 pass) but isn't part of the live demo.
 
 ---
 
@@ -271,11 +282,10 @@ reason, shows up on the family page. It's an economic agent built to say no.
 
 | Claim | Evidence |
 |---|---|
-| Unit tests | `pytest tests/test_safety.py` 50 passed (1 live-Stripe skip) · `test_vision.py` 50 passed · `test_voiceprint.py` 14 passed (run Nov 14) |
+| Unit tests | `test_vision.py` 50 passed · `test_voiceprint.py` 14 passed (run Nov 14). `test_safety.py`: **rerun after the purchase removal and write the count here** (it was 50 before) |
 | Scam detector | `tests/eval_scam.py --no-llm`: 14/14 scams caught (13 high), 0/12 false alarms (run Nov 14) |
 | End to end | `tests/e2e_scenarios.py`: 32/32 (team run, real Deepgram + OpenAI, pretend band) |
 | Brain | `tests/eval_brain.py`: 12/12 (team run) |
 | Answers | `tests/eval_answers.py` prints answers for human review |
 | Real band | Commits "Real-band fixes", tap threshold, decoder reset, wander. **Confirm live at the venue before claiming each one.** |
-| Stripe | Test mode only. Without `sk_test_…` charges are simulated (`sim_…` ids). |
-| Not built yet | Transcript auto-prune (function exists, not scheduled), clearing the scam lock from the family page, face recognition in the live loop |
+| Not built yet | Transcript auto-prune (function exists, not scheduled), face recognition in the live loop |

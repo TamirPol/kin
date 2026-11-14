@@ -19,8 +19,9 @@ the Luma page and organizer announcements. **Check Discord for changes.** It is 
 | 10:15 | **Hacking starts** |
 | 10:25–10:45 | Product demos (Subvocal, Marv Labs) |
 | 12:30 | Lunch |
-| **6:00** | **Hacking closes, submissions due, dinner** |
-| 6:30 | Judging starts (round 1: "show what you built") |
+| ~5:30 | **Our code freeze** (last fixes, then only docs) |
+| **6:00** | **Hacking closes. All commits and the Devpost submission are due.** |
+| right after 6:00 | **In-person demos: 2 min demo + 1 min Q&A** per team (round 1) |
 | 8:00–9:00 | Finals + closing |
 
 ## Rules
@@ -28,17 +29,24 @@ the Luma page and organizer announcements. **Check Discord for changes.** It is 
 - Teams encouraged. In-person participation.
 - **Public GitHub repo** (this one) and **a hardware-related project** (the Vexo band).
 - Meet each track's requirements for every track you enter.
-- Final commits and the final video before **6:00 PM PT**.
+- **All commits before 6:00 PM PT** (we freeze code at ~5:30).
+- Video: **1 minute, optional**, a backup in case the live demo fails.
 - Wear your badge and wristband. No smoking, vaping or alcohol. Respect staff-only areas.
 
-## Submission checklist (due 6:00 PM)
+## Submission (official rules, due 6:00 PM PT)
 
-- [ ] GitHub repo with README (this repo)
-- [ ] Video demo (record by ~5:00; keep a backup in case the live demo fails)
-- [ ] Devpost submission (link is posted closer to the deadline; watch Discord)
-- [ ] Ready to show a **working demo in person** at judging
+The Devpost link is released right before the deadline (watch Discord). Fields:
 
-Judging criteria and pitch length were not published. Plan a 2-minute live demo and ask at kickoff.
+- [ ] **Project description:** what it does + how it works (paste from [DEVPOST.md](DEVPOST.md))
+- [ ] **Public GitHub repo with README:** https://github.com/TamirPol/kin
+- [ ] **1-minute video** (optional, a backup if the live demo fails): plan in [RECORDING.md](RECORDING.md)
+- [ ] **Sponsor tracks entered:** **Best Voice Use Case on Pipecat (Deepgram)** and **Best ElevenLabs Project**
+- [ ] Ready for the **in-person demo right after 6:00**: 2 min demo + 1 min Q&A ([LIVE_DEMO.md](LIVE_DEMO.md))
+
+Judging criteria: Approach & Idea · Product–Technical · Presentation · Product–Design · X Factor · AI Relevance & Depth.
+
+We do **not** enter the Gemini track: vision isn't in the live demo, so it's mentioned only as "also built."
+We don't enter the Stripe track either. Kin has no purchasing feature.
 
 ## Prizes
 
@@ -49,15 +57,15 @@ Overall prizes and sponsor-track prizes are separate: one project can win both.
 | **Overall 1st** | $5K OpenAI credits, VITURE Pro 2 XR glasses, 3 months ElevenLabs Pro, 1 year Superserve Pro, **YC final interview** | The whole product | Core built |
 | Overall 2nd | $2.5K OpenAI credits + DJI drone | | |
 | Overall 3rd | $1K OpenAI credits + Ray-Ban Meta glasses | | |
-| **Best Voice Use Case on Pipecat** | Up to $100K Deepgram credits + **Nintendo Switches** | Pipecat runs the whole voice pipeline; Deepgram STT with speaker labels | Built; test with real keys |
-| **Best ElevenLabs Project** | 3 months ElevenLabs Scale per team member | Kin's warm, calm voice | Wired; needs key |
-| **Best Use of Gemini 4** | 1st $2K GCP credits per member, 2nd $1K, 3rd $500 | Vision: camera → Gemini → "where things are" | Built; needs key + camera |
-| **Best Economic Agent (Stripe)** | $3K / $2K / $1K Stripe credits | Buys within family limits, blocks scams | Built; simulated until a test key |
+| **Best Voice Use Case on Pipecat** | Up to $100K Deepgram credits + **Nintendo Switches** | Pipecat runs the whole voice pipeline; Deepgram STT with speaker labels | **Entered** |
+| **Best ElevenLabs Project** | 3 months ElevenLabs Scale per team member | Kin's warm, calm voice | **Entered** |
+| Best Use of Gemini 4 | 1st $2K GCP credits per member, 2nd $1K, 3rd $500 | Vision: camera → Gemini → "where things are" | **Not entered** (vision not demoed); "also built" |
+| Best Economic Agent (Stripe) | $3K / $2K / $1K Stripe credits | — | Not entered (not applicable to Kin) |
 
 The Pipecat prize slide was marked "work in progress". Confirm at the Deepgram/Pipecat table what
 they want to see.
 
-**Order of attack:** core first (Overall + Pipecat + ElevenLabs), then Gemini (vision), then Stripe.
+**Entered:** Overall (automatic) + Pipecat/Deepgram + ElevenLabs.
 
 ## Free credits (claim early; never paste keys into chat or git)
 
@@ -67,7 +75,6 @@ they want to see.
 | OpenAI | $50 API credits per participant | Single-use links from organizers; redeem before Nov 16 |
 | ElevenLabs | 1 month Creator | Tied to your registration email |
 | Gemini | Credits via temporary accounts for on-site attendees | Google table |
-| Stripe | $500 credits + free US incorporation | Stripe startup-benefits page for VexoHacks |
 | Superserve | $100 credit, code `VEXOHACKS` | Redeem by Nov 14, 11:59 PM PT |
 | MiniMax | $30 API credits | Claim form in their Discord channel |
 | Marv Labs | Cameras to build with | Their booth |

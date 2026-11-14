@@ -26,7 +26,7 @@ ENV_FILE = config.ROOT / ".env"
 
 # alert kind -> (title, short generic body, ntfy priority 1-5, tags)
 MESSAGES = {
-    "scam": ("{w} may not be OK", "Possible scam call. Kin warned him and paused purchases.", 5, "rotating_light"),
+    "scam": ("{w} may not be OK", "Possible scam call. Kin warned him not to send any money.", 5, "rotating_light"),
     # "fall" itself sends nothing: Kin asks first and only "fall_emergency" (no answer) alerts the phones
     "fall_emergency": ("{w} needs a check-in now", "No answer after a possible fall. Please call or visit.", 5,
                        "sos"),
