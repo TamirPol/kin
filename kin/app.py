@@ -39,6 +39,7 @@ WEARER_MARGIN_DB = 4.0     # the wearer's voice must be this much louder (median
 FALL_WAIT = 10.0           # seconds to answer the fall check, counted after Kin has asked
 REMIND_AFTER = float(__import__("os").environ.get("KIN_REMIND_AFTER", "600"))  # remind of a to-do this long after it was made
 REMIND_QUIET = 20.0        # only remind when nobody has spoken for this long
+REMIND_MIN_AGE = float(__import__("os").environ.get("KIN_REMIND_MIN_AGE", "600"))  # never remind about something just said
 WANDER_RSSI = -88          # dBm: weaker than this means the band is far from the laptop/base
 WANDER_SECONDS = 10.0      # ... for this long (or the link is lost this long) -> wander alert
 CONVO_WINDOW = 9.0         # after Kin answers, keep listening this long for a follow-up
@@ -265,7 +266,8 @@ class Kin:
             if t["id"] in self._reminded or (t.get("reminded") or 0) > 0:
                 continue
             due = (t["due"] or "").lower()
-            if force or any(w in due for w in DUE_NOW) or now - t["ts"] > REMIND_AFTER:
+            age = now - t["ts"]
+            if force or (age > REMIND_MIN_AGE and any(w in due for w in DUE_NOW)) or age > REMIND_AFTER:
                 return t
         return None
 
