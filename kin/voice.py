@@ -96,7 +96,9 @@ class KinRouter(FrameProcessor):
             await self.speak(rule_answer(q))
             return
         if isinstance(frame, InterimTranscriptionFrame):
-            return                                           # partial guesses: ignore
+            if self.app.dashboard and frame.text.strip():   # live "hearing..." text for the test page
+                self.app.dashboard.publish({"table": "interim", "row": {"text": frame.text.strip()}})
+            return                                           # partial guesses: not stored
         if isinstance(frame, TranscriptionFrame):
             text = frame.text.strip()
             if text:

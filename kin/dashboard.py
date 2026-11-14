@@ -32,6 +32,13 @@ _clients: set[tuple[asyncio.AbstractEventLoop, asyncio.Queue]] = set()
 _clients_lock = threading.Lock()
 _status: dict = {"mode": "listen", "band": "disconnected", "note": ""}
 _hooked = False
+_command_handler = None        # set by the main app: fn(cmd: str) runs a terminal-style command
+
+
+def set_command_handler(fn) -> None:
+    """The main app registers how to run test commands from the /test page (t, f, r, a <question>...)."""
+    global _command_handler
+    _command_handler = fn
 
 
 def _broadcast(event: dict) -> None:
@@ -84,6 +91,10 @@ def _mark_alert_seen(aid: int) -> dict | None:
     return dict(row) if row else None
 
 
+class CommandIn(BaseModel):
+    cmd: str
+
+
 class PersonIn(BaseModel):
     name: str
     relationship: str = ""
@@ -98,6 +109,20 @@ def create_app() -> FastAPI:
     @app.get("/")
     def index():
         return FileResponse(STATIC_DIR / "index.html", headers={"Cache-Control": "no-store"})
+
+    @app.get("/test")
+    def test_page():
+        return FileResponse(STATIC_DIR / "test.html", headers={"Cache-Control": "no-store"})
+
+    @app.post("/api/command")
+    def command(c: CommandIn):
+        cmd = c.cmd.strip()[:300]
+        if cmd.split(" ", 1)[0] not in ("t", "f", "r", "a", "w", "1", "2", "3", "away", "home"):
+            raise HTTPException(400, "unknown command")
+        if not _command_handler:
+            raise HTTPException(503, "Kin is not running")
+        _command_handler(cmd)
+        return {"ok": True}
 
     @app.get("/api/snapshot")
     def snapshot():

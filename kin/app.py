@@ -208,7 +208,38 @@ class Kin:
         pcm = self._decoder.feed(a)
         from vexo_open.audio import level_db
         self._levels.append((time.time(), level_db(pcm)))
+        self._audio_packets = getattr(self, "_audio_packets", 0) + 1
         await self.source.feed(pcm)
+
+    async def meter_loop(self):
+        """Live mic level for the /test page, twice a second."""
+        while True:
+            await asyncio.sleep(0.5)
+            if not self.dashboard:
+                continue
+            now = time.time()
+            recent = [db for t, db in self._levels if now - t < 0.5]
+            last_t = self._levels[-1][0] if self._levels else 0
+            self.dashboard.publish({"table": "mic", "row": {
+                "db": round(max(recent), 1) if recent else None,
+                "arriving": bool(last_t and now - last_t < 2),
+                "speaking": self.speaking, "mode": self.mode, "band": self.band_state}})
+
+    async def mic_loop(self):
+        """Every 10 s: is sound arriving from the band, and how loud (quiet room ~ -50 dB, talking ~ -30)."""
+        last = 0
+        while True:
+            await asyncio.sleep(10)
+            if not self.band or self.sim:
+                continue
+            n = getattr(self, "_audio_packets", 0)
+            if n == last:
+                log.warning("No sound from the band in the last 10 s (is it connected? mic on = solid blue light)")
+            else:
+                recent = [db for t, db in self._levels if time.time() - t < 10]
+                peak = max(recent) if recent else -99
+                log.info("MIC sound arriving | loudest %.0f dB (quiet room about -50, talking near band about -30)", peak)
+            last = n
 
     async def _on_double_tap(self, e=None):
         if self._fall_task and not self._fall_task.done():
@@ -331,6 +362,9 @@ class Kin:
                 from . import dashboard
                 dashboard.start_in_thread(config.DASHBOARD_PORT, host="127.0.0.1")
                 self.dashboard = dashboard
+                loop = asyncio.get_running_loop()
+                dashboard.set_command_handler(
+                    lambda cmd: asyncio.run_coroutine_threadsafe(self.command(cmd), loop))
                 log.info("Dashboard: http://localhost:%s", config.DASHBOARD_PORT)
             except ImportError:
                 log.info("Dashboard module not built yet.")
@@ -436,7 +470,7 @@ class Kin:
         await self.connect_band()
         self._quit = asyncio.Event()
         jobs = [asyncio.create_task(self.chunk_loop()), asyncio.create_task(self.reminder_loop()),
-                asyncio.create_task(self.wander_loop())]
+                asyncio.create_task(self.wander_loop()), asyncio.create_task(self.mic_loop()), asyncio.create_task(self.meter_loop())]
         demo_task = asyncio.create_task(self.demo()) if self.args.demo else None
         if demo_task:
             jobs.append(demo_task)
@@ -463,6 +497,24 @@ class Kin:
                 pass
 
 
+class Pretty(logging.Formatter):
+    """Short, readable terminal lines: what Kin heard, what it said, what happened."""
+    STYLE = [("HEARD ", "\033[37m  👂 "), ("KIN SAYS: ", "\033[1;32m  🗣  KIN (out loud): "),
+             ("ASK: ", "\033[1;36m  ❓ YOU ASKED: "), ("MODE: ask", "\033[1;36m  👆 double-tap: asking mode"),
+             ("MEMORY ", "\033[35m  🧠 saved: "), ("SCAM", "\033[1;31m  🚨 SCAM"), ("REMIND", "\033[33m  ⏰ REMIND"),
+             ("WANDER", "\033[1;31m  🚶 WANDER"), ("MIC ", "\033[90m  🎚  ")]
+
+    def format(self, record):
+        msg = record.getMessage()
+        t = time.strftime("%H:%M:%S", time.localtime(record.created))
+        for prefix, style in self.STYLE:
+            if msg.startswith(prefix):
+                return f"\033[90m{t}\033[0m{style}{msg[len(prefix):]}\033[0m"
+        if record.levelno >= logging.WARNING:
+            return f"\033[90m{t}\033[0m  \033[33m⚠️  {msg}\033[0m"
+        return f"\033[90m{t}  {msg}\033[0m"
+
+
 def main():
     ap = argparse.ArgumentParser(description="Kin: memory companion on a Vexo band")
     ap.add_argument("--band", type=int, default=config.BAND_NUMBER)
@@ -477,7 +529,13 @@ def main():
     ap.add_argument("--mute", action="store_true", help="don't play the fallback voice out loud")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
-    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s", datefmt="%H:%M:%S")
+    import warnings
+    warnings.filterwarnings("ignore")
+    handler = logging.StreamHandler()
+    handler.setFormatter(Pretty())
+    logging.basicConfig(level=logging.INFO, handlers=[handler])
+    for noisy in ("httpx", "httpx2", "httpcore", "openai", "websockets", "uvicorn", "uvicorn.access", "uvicorn.error"):
+        logging.getLogger(noisy).setLevel(logging.WARNING)
     if not args.verbose:
         from loguru import logger
         logger.remove()
