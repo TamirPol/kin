@@ -694,6 +694,28 @@
   connect();
 })();
 
+// Demo panel: press D to show/hide small buttons (hidden by default, so judges see a clean page).
+(function () {
+  const panel = document.createElement("div");
+  panel.id = "demo-panel";
+  panel.hidden = true;
+  panel.style.cssText = "position:fixed;right:16px;bottom:16px;z-index:50;display:flex;gap:8px;flex-wrap:wrap;" +
+    "padding:10px;border-radius:14px;background:rgba(20,18,16,.85);backdrop-filter:blur(6px)";
+  [["1 Sarah visits", "sarah"], ["2 Scam call", "scam"], ["3 Leo", "leo"], ["4 Doctor", "doctor"]].forEach(([label, who]) => {
+    const b = document.createElement("button");
+    b.textContent = label;
+    b.style.cssText = "font:600 14px system-ui;padding:8px 12px;border-radius:10px;border:0;cursor:pointer;" +
+      "background:#f3ede6;color:#1c1a17";
+    b.onclick = () => fetch("/api/actor/" + who, { method: "POST" }).then(() => { b.textContent = "▶ " + label; });
+    panel.appendChild(b);
+  });
+  document.addEventListener("DOMContentLoaded", () => document.body.appendChild(panel));
+  if (document.body) document.body.appendChild(panel);
+  document.addEventListener("keydown", (e) => {
+    if ((e.key === "d" || e.key === "D") && !/^(INPUT|TEXTAREA|SELECT)$/.test((e.target || {}).tagName || "")) panel.hidden = !panel.hidden;
+  });
+})();
+
 // Demo hotkeys (presenter only, nothing on screen): 1 = Sarah visits, 2 = scam call, 3 = Leo, 4 = doctor.
 // They make the laptop speakers play that person (scripts/actors.sh) so the browser can stay full-screen.
 document.addEventListener("keydown", (e) => {

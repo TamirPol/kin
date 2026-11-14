@@ -20,6 +20,7 @@ import argparse
 import asyncio
 import logging
 import os
+import re
 import statistics
 import sys
 import time
@@ -267,6 +268,10 @@ class Kin:
             if t["id"] in self._reminded or (t.get("reminded") or 0) > 0:
                 continue
             due = (t["due"] or "").lower()
+            if any(w in due for w in ("tomorrow", "next week", "next month", "weekend")) or \
+                    re.search(r"\b(monday|tuesday|wednesday|thursday|friday|saturday|sunday)\b", due) and \
+                    time.strftime("%A").lower() not in due:
+                continue                               # not today: no nagging now
             age = now - t["ts"]
             if force or (age > REMIND_MIN_AGE and any(w in due for w in DUE_NOW)) or age > REMIND_AFTER:
                 return t
