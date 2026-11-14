@@ -69,6 +69,7 @@ class Kin:
         self._last_tap = 0.0
         self._ask_started = 0.0
         self._closing = False                     # the wearer said thanks/bye: end after this answer
+        self.answered_once = False                # in this conversation: later turns must sound like the wearer
         self._chunk: list[dict] = []
         self._chunk_started = 0.0
         self._last_heard = 0.0
@@ -113,6 +114,7 @@ class Kin:
     def new_conversation(self):
         """A fresh conversation: forget earlier Q&A (stale answers make the AI repeat its own mistakes).
         Recent talk is still in the system prompt's memory, so follow-ups keep their context."""
+        self.answered_once = False
         if self.ctx:
             try:
                 self.ctx.user().context.set_messages([])
@@ -723,6 +725,8 @@ class Kin:
                 self.publish_status()
             else:
                 self._ask_started = time.time()  # follow-up window starts now
+                if (getattr(self, "_last_said", "") or "").strip().rstrip("?").lower() not in ("yes", ""):
+                    self.answered_once = True     # a real answer was given (not just "Yes?")
                 self.publish_status(note="Still listening: ask a follow-up, or say thanks")
 
     # ------------------------------------------------------------------ dashboard, vision

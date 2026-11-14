@@ -159,9 +159,11 @@ class KinRouter(FrameProcessor):
                 else:
                     await self.speak("Yes?")
                     return
-        if self.app.mode == "ask" and speaker != "wearer" and name and not woke:
-            await self.app.heard(speaker, text, name)        # confidently someone else (e.g. Sarah): remember
-            return                                           # it, but it's not part of the wearer's question
+        if self.app.mode == "ask" and speaker != "wearer" and not woke and (name or self.app.answered_once):
+            # confidently someone else (e.g. Sarah), or a follow-up that doesn't sound like the wearer:
+            # background chatter in a busy room. Remember it, but don't answer it.
+            await self.app.heard(speaker, text, name)
+            return
         if self.app.mode == "ask":
             if FILLER.match(text) and not self._question:
                 return                                       # "yeah" / "okay" / "mm" on its own isn't a question
