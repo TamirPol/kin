@@ -33,8 +33,9 @@ FINE = _re.compile(r"\b(i'?m|i am|im)\s+(fine|ok(ay)?|alright|all right|good|not
                    r"^\W*(fine|okay|ok|all good|i'?m good)\W*$", _re.I)
 NOT_FINE = _re.compile(r"^\W*no\b|\bnot (fine|ok(ay)?|alright|all right|good)\b|\bhelp\b|\bi (fell|fall|can'?t get up)|"
                        r"\b(hurt|pain|bleeding|dizzy)\b|\bcall (someone|sarah|my|911|an ambulance)", _re.I)
-STOP = _re.compile(r"^\W*(?:(?:okay|ok|kin|hey kin)[\s,]+)?(stop|stop it|stop talking|be quiet|quiet|shush|shut up|enough|"
-                   r"that'?s enough|never ?mind|cancel|forget it)\W*$|\bstop talking\b|\bbe quiet\b|\bshut up\b", _re.I)
+STOP = _re.compile(r"^\W*(?:(?:okay|ok|kin|hey kin|i said|no)[\s,.]+)?(stop|stop it|stop talking|be quiet|quiet|shush|"
+                   r"shut up|enough|that'?s enough|never ?mind|cancel|forget it)\b(?!\W+\w+\W+\w+\W+\w+\W+\w)|"
+                   r"\bstop talking\b|\bbe quiet\b|\bshut up\b|\bnever ?mind\b(?=\W*$)", _re.I)
 SAID_FELL = _re.compile(r"\bi(?:'ve| have| just)?\s*(fell|fallen|slipped|tripped|fell down|fell over)\b|\bi can'?t get up\b|"
                         r"\bi(?:'m| am) hurt\b|\bi hurt (my|myself)\b|\bi'?m on the floor\b", _re.I)
 NEGATED_FELL = _re.compile(r"\b(didn'?t|did not|never|haven'?t)\s+(fall|fell|slip|trip)|\bi'?m not hurt\b|\bif i fall\b|"

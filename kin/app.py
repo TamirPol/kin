@@ -566,11 +566,13 @@ class Kin:
             is_wearer = loud_label == "wearer"
             why = ["no wearer voiceprint yet: loudness"]
         else:                                                 # too short to recognise: keep this voice's last label
-            prev = self._dg_decision.get(dg)
-            if prev:
+            prev = self._dg_decision.get(dg)                  # too short to check: this Deepgram voice's last
+            if prev:                                          # checked label, else relative loudness
+                log.info("VOICE short clip, same voice as before -> %s",
+                         "you (wearer)" if prev[0] == "wearer" else "someone else")
                 return prev
-            is_wearer = True                                  # too short to check: assume the wearer (their voice
-            why = ["short clip, assumed the wearer"]          # scores ~0.7 when checkable; others are checked properly)
+            is_wearer = loud_label == "wearer"
+            why = ["short clip, by loudness"]
         log.info("VOICE %s -> %s", ", ".join(why), "you (wearer)" if is_wearer else "someone else")
 
         if fresh and dg:                                      # remember this voice's decision for short lines
