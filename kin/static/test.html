@@ -3,228 +3,142 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Kin Live Test</title>
+<title>Kin Hearing Check</title>
 <style>
-  :root {
-    --bg: #f6f3ee; --card: #ffffff; --ink: #1d1b18; --muted: #6f6a62; --line: #e4ded4;
-    --ok: #1f8a4c; --ok-bg: #e3f4ea; --bad: #c0392b; --bad-bg: #fbe5e2; --wait: #a86b00; --wait-bg: #fff2d6;
-    --kin: #1f8a4c; --you: #2f5bd3; --other: #7a4fd0; --accent: #e07a3f;
-  }
-  @media (prefers-color-scheme: dark) {
-    :root:not([data-theme="light"]) {
-      --bg: #141311; --card: #1f1d1a; --ink: #f3efe8; --muted: #a39d93; --line: #34302b;
-      --ok: #4cc27f; --ok-bg: #173826; --bad: #ff7a6b; --bad-bg: #3d1a16; --wait: #f2b84b; --wait-bg: #3a2c10;
-      --kin: #4cc27f; --you: #7b9cff; --other: #b896ff; --accent: #ff9a5c;
-    }
-  }
+  :root { --bg:#faf8f4; --card:#fff; --ink:#1b1916; --muted:#6d675e; --line:#e6e0d6;
+          --ok:#17803f; --okbg:#dff3e6; --bad:#c2321f; --badbg:#fde4df; --wait:#946100; --waitbg:#fff1d2;
+          --you:#2453c9; --other:#7240c9; --kin:#17803f; }
+  @media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) {
+          --bg:#121110; --card:#1d1b19; --ink:#f4f0ea; --muted:#a8a197; --line:#33302b;
+          --ok:#51c985; --okbg:#173a26; --bad:#ff7d6b; --badbg:#3f1914; --wait:#f3bb4d; --waitbg:#3b2c0e;
+          --you:#86a6ff; --other:#bd9cff; --kin:#51c985; } }
   * { box-sizing: border-box; }
-  body { margin: 0; background: var(--bg); color: var(--ink);
-         font: 17px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, sans-serif; }
-  main { max-width: 1100px; margin: 0 auto; padding: 20px 16px 60px; }
-  h1 { font-size: 28px; margin: 0 0 4px; } h1 span { color: var(--accent); }
-  .sub { color: var(--muted); margin: 0 0 18px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
-  @media (max-width: 820px) { .grid { grid-template-columns: 1fr; } }
-  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; padding: 18px; }
-  .card h2 { font-size: 14px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); margin: 0 0 12px; }
-  .lights { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
-  .light { border-radius: 12px; padding: 12px; text-align: center; font-weight: 650; background: var(--wait-bg); color: var(--wait); }
-  .light small { display: block; font-weight: 500; font-size: 13px; opacity: .85; }
-  .light.ok { background: var(--ok-bg); color: var(--ok); } .light.bad { background: var(--bad-bg); color: var(--bad); }
-  .meter { height: 30px; border-radius: 15px; background: var(--line); overflow: hidden; margin: 6px 0 8px; position: relative; }
-  .meter > div { height: 100%; width: 0; background: linear-gradient(90deg, var(--ok), var(--accent)); transition: width .25s; }
-  .meter-label { display: flex; justify-content: space-between; color: var(--muted); font-size: 14px; }
-  #micText { font-size: 20px; font-weight: 650; }
-  #hearing { min-height: 56px; margin-top: 12px; padding: 12px 14px; border-radius: 12px; background: var(--bg);
-             color: var(--muted); font-style: italic; font-size: 19px; }
-  #hearing.live { color: var(--ink); }
-  .steps { list-style: none; margin: 0; padding: 0; }
-  .steps li { display: flex; gap: 12px; align-items: flex-start; padding: 10px 0; border-bottom: 1px solid var(--line); }
-  .steps li:last-child { border-bottom: 0; }
-  .tick { flex: 0 0 30px; height: 30px; border-radius: 50%; display: grid; place-items: center; font-weight: 800;
-          background: var(--line); color: var(--muted); }
-  .steps li.done .tick { background: var(--ok); color: #fff; }
-  .steps b { display: block; } .steps span { color: var(--muted); font-size: 15px; }
-  .feed { height: 420px; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; padding-right: 4px; }
-  .msg { max-width: 85%; padding: 10px 14px; border-radius: 14px; background: var(--bg); }
-  .msg .who { font-size: 13px; font-weight: 700; margin-bottom: 2px; }
-  .msg.kin { align-self: flex-end; background: var(--ok-bg); } .msg.kin .who { color: var(--kin); }
-  .msg.you .who { color: var(--you); } .msg.other .who { color: var(--other); }
-  .msg.skip { opacity: .5; } .msg .tag { font-size: 12px; margin-left: 6px; padding: 1px 8px; border-radius: 10px; background: var(--line); }
-  .empty { color: var(--muted); text-align: center; margin: auto; }
-  .btns { display: flex; flex-wrap: wrap; gap: 10px; }
-  button { font: inherit; font-weight: 650; border: 0; border-radius: 12px; padding: 12px 16px; cursor: pointer;
-           background: var(--ink); color: var(--bg); }
+  body { margin:0; background:var(--bg); color:var(--ink); font:20px/1.45 -apple-system,BlinkMacSystemFont,"Segoe UI",Inter,sans-serif; }
+  main { max-width: 860px; margin: 0 auto; padding: 24px 16px 60px; }
+  .big { border-radius: 22px; padding: 26px 28px; margin-bottom: 18px; background: var(--waitbg); color: var(--wait); }
+  .big.ok { background: var(--okbg); color: var(--ok); } .big.bad { background: var(--badbg); color: var(--bad); }
+  .big h1 { margin: 0; font-size: 40px; line-height: 1.15; } .big p { margin: 6px 0 0; font-size: 21px; color: inherit; opacity: .9; }
+  .meter { height: 18px; border-radius: 9px; background: rgba(127,127,127,.25); overflow: hidden; margin-top: 16px; }
+  .meter div { height: 100%; width: 0; background: currentColor; transition: width .2s; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 22px; padding: 22px 24px; margin-bottom: 18px; }
+  .card h2 { margin: 0 0 14px; font-size: 16px; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
+  #now { font-size: 30px; font-weight: 650; min-height: 44px; }
+  #nowWho { font-size: 18px; color: var(--muted); margin-bottom: 4px; }
+  .line { padding: 12px 0; border-bottom: 1px solid var(--line); }
+  .line:last-child { border-bottom: 0; }
+  .who { font-weight: 750; font-size: 17px; } .who.you { color: var(--you); } .who.other { color: var(--other); } .who.kin { color: var(--kin); }
+  .line.kin { background: var(--okbg); margin: 6px -12px; padding: 12px; border-radius: 14px; border: 0; }
+  .muted { color: var(--muted); }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; }
+  button { font: inherit; font-size: 18px; font-weight: 700; border: 0; border-radius: 14px; padding: 14px 18px; cursor: pointer; background: var(--ink); color: var(--bg); }
   button.alt { background: var(--line); color: var(--ink); }
-  form { display: flex; gap: 8px; margin-top: 12px; }
-  input { flex: 1; font: inherit; padding: 12px 14px; border-radius: 12px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
-  .mem { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 4px; }
-  .mem div { background: var(--bg); border-radius: 12px; padding: 10px; }
-  .mem b { display: block; font-size: 26px; } .mem span { color: var(--muted); font-size: 14px; }
-  .speaking { animation: pulse 1s infinite; } @keyframes pulse { 50% { opacity: .55; } }
-  a { color: var(--accent); }
+  form { display: flex; gap: 10px; margin-top: 12px; }
+  input { flex: 1; min-width: 0; font: inherit; font-size: 18px; padding: 14px 16px; border-radius: 14px; border: 1px solid var(--line); background: var(--bg); color: var(--ink); }
+  details summary { cursor: pointer; font-weight: 700; color: var(--muted); }
+  a { color: inherit; }
 </style>
 </head>
 <body>
 <main>
-  <h1><span>Kin</span> live test</h1>
-  <p class="sub">Talk near the band and watch. Everything here updates by itself. <a href="/">Open the family dashboard →</a></p>
+  <section class="big" id="status">
+    <h1 id="statusTitle">Waiting for Kin…</h1>
+    <p id="statusText">Start Kin, then double-tap the band.</p>
+    <div class="meter"><div id="meter"></div></div>
+  </section>
 
-  <div class="grid">
-    <section class="card">
-      <h2>Right now</h2>
-      <div class="lights">
-        <div class="light" id="lBand">Band<small>waiting…</small></div>
-        <div class="light" id="lMic">Microphone<small>waiting…</small></div>
-        <div class="light" id="lMode">Mode<small>listening</small></div>
+  <section class="card">
+    <h2>Last thing Kin heard</h2>
+    <div id="nowWho"></div>
+    <div id="now" class="muted">Nothing yet. Say something near the band.</div>
+  </section>
+
+  <section class="card">
+    <h2>Conversation</h2>
+    <div id="feed"><div class="muted">Nothing yet.</div></div>
+  </section>
+
+  <section class="card">
+    <details>
+      <summary>Test without talking</summary>
+      <div class="row" style="margin-top:14px">
+        <button data-cmd="t">Pretend double-tap</button>
+        <button data-cmd="r" class="alt">Remind me now</button>
+        <button data-cmd="f" class="alt">Pretend a fall</button>
       </div>
-      <h2 style="margin-top:18px">How loud the band hears</h2>
-      <div id="micText">No sound yet</div>
-      <div class="meter"><div id="meterBar"></div></div>
-      <div class="meter-label"><span>silent</span><span>quiet room</span><span>talking near band</span></div>
-      <div id="hearing">Kin is listening… start talking.</div>
-    </section>
-
-    <section class="card">
-      <h2>Test checklist (ticks itself)</h2>
-      <ol class="steps">
-        <li id="s1"><div class="tick">1</div><div><b>Band connected</b><span>Double-tap the band before starting Kin.</span></div></li>
-        <li id="s2"><div class="tick">2</div><div><b>Sound is arriving</b><span>The meter moves when you talk.</span></div></li>
-        <li id="s3"><div class="tick">3</div><div><b>Kin understood words</b><span>Say a sentence; it appears on the right.</span></div></li>
-        <li id="s4"><div class="tick">4</div><div><b>Double-tap works</b><span>Tap the band twice. Kin says "Yes?" out loud.</span></div></li>
-        <li id="s5"><div class="tick">5</div><div><b>Kin answered a question out loud</b><span>After "Yes?", ask: "What did I just say?"</span></div></li>
-        <li id="s6"><div class="tick">6</div><div><b>Kin remembered something</b><span>Say "I'm putting my keys on the desk", then wait 7 seconds.</span></div></li>
-      </ol>
-    </section>
-
-    <section class="card">
-      <h2>Conversation</h2>
-      <div class="feed" id="feed"><div class="empty" id="empty">Nothing heard yet.</div></div>
-    </section>
-
-    <section class="card">
-      <h2>Test without the band</h2>
-      <div class="btns">
-        <button data-cmd="t">👆 Pretend double-tap</button>
-        <button data-cmd="r" class="alt">⏰ Remind me now</button>
-        <button data-cmd="f" class="alt">🫨 Pretend a fall</button>
-      </div>
-      <form id="askForm">
-        <input id="askInput" placeholder="Type a question for Kin, e.g. Where are my keys?" autocomplete="off">
-        <button>Ask</button>
-      </form>
-      <form id="sayForm">
-        <input id="sayInput" placeholder="Type something someone said, e.g. Hi Dad, it's Sarah!" autocomplete="off">
-        <button class="alt">Say it</button>
-      </form>
-      <h2 style="margin-top:18px">What Kin remembers</h2>
-      <div class="mem">
-        <div><b id="mPeople">0</b><span>people</span></div>
-        <div><b id="mTodos">0</b><span>to-dos</span></div>
-        <div><b id="mItems">0</b><span>things placed</span></div>
-      </div>
-    </section>
-  </div>
+      <form id="askForm"><input id="askInput" placeholder="Ask Kin something…" autocomplete="off"><button>Ask</button></form>
+    </details>
+    <p class="muted" style="margin:16px 0 0">Family view: <a href="/">open the dashboard</a></p>
+  </section>
 </main>
 
 <script>
 const $ = (id) => document.getElementById(id);
-const state = { lastKinAfterAsk: false, sawAsk: false, heardWords: false };
+let wearer = "You", lastHeard = 0, mic = { arriving: false }, mode = "listen", band = "", speaking = false;
 
-function light(id, cls, label) {
-  const el = $(id); el.className = "light " + cls;
-  el.querySelector("small").textContent = label;
+function setStatus() {
+  const box = $("status"), t = $("statusTitle"), p = $("statusText");
+  const ago = lastHeard ? Math.round((Date.now() - lastHeard) / 1000) : null;
+  if (!band || band === "disconnected") { box.className = "big bad"; t.textContent = "Band not connected"; p.textContent = "Double-tap the band, then restart Kin."; return; }
+  if (speaking) { box.className = "big ok"; t.textContent = "🔊 Kin is talking"; p.textContent = "Listen to your laptop speaker."; return; }
+  if (mode === "ask") { box.className = "big ok"; t.textContent = "👂 Ask your question now"; p.textContent = "Kin is waiting for your question."; return; }
+  if (!mic.arriving) { box.className = "big bad"; t.textContent = "No sound from the band"; p.textContent = "Is the band on? The light should be solid blue."; return; }
+  box.className = "big ok";
+  t.textContent = "✅ Kin can hear";
+  p.textContent = ago === null ? "Say something and it will show up below." :
+                  ago < 60 ? `Last words heard ${ago} seconds ago.` : `Last words heard ${Math.round(ago / 60)} min ago.`;
 }
-function done(n) { $("s" + n).classList.add("done"); }
 
-function addMsg(row) {
+function who(row) {
+  if (row.speaker === "kin") return ["🔊 Kin said out loud", "kin"];
+  if (row.speaker === "wearer") return ["👤 " + wearer + " (wearing the band)", "you"];
+  return ["👥 " + (row.name || "Someone else"), "other"];
+}
+
+function add(row) {
   if (!row || !row.text) return;
-  $("empty")?.remove();
-  const who = row.speaker === "kin" ? "kin" : row.speaker === "wearer" ? "you" : "other";
-  const div = document.createElement("div");
-  div.className = "msg " + who;
-  div.dataset.id = row.id;
-  const w = document.createElement("div");
-  w.className = "who";
-  w.textContent = who === "kin" ? "🔊 Kin said out loud" : who === "you" ? "👤 You (wearer)" :
-                  "👥 " + (row.name || row.speaker || "Someone");
-  const t = document.createElement("div");
-  t.textContent = row.text;
-  div.append(w, t);
-  $("feed").append(div);
-  $("feed").scrollTop = $("feed").scrollHeight;
-  if (who === "kin") { if (state.sawAsk && row.text.trim() !== "Yes?") done(5); }
-  else { state.heardWords = true; done(3); }
-  $("hearing").textContent = "Kin is listening…"; $("hearing").classList.remove("live");
-}
-
-function rate(row) {
-  const el = document.querySelector(`.msg[data-id="${row.id}"]`);
-  if (!el) return;
-  const tag = document.createElement("span");
-  tag.className = "tag";
-  tag.textContent = row.importance === 0 ? "ignored (small talk)" : row.importance >= 2 ? "remembered" : "kept for today";
-  el.querySelector(".who").append(tag);
-  if (row.importance === 0) el.classList.add("skip");
-}
-
-async function refreshMemory() {
-  try {
-    const s = await (await fetch("/api/snapshot")).json();
-    $("mPeople").textContent = s.people.length; $("mTodos").textContent = s.todos.length; $("mItems").textContent = s.items.length;
-    if (s.people.length + s.todos.length + s.items.length > 0) done(6);
-    if (!$("feed").querySelector(".msg")) s.transcript.slice(-30).forEach(addMsg);
-    status(s.status || {});
-  } catch (e) {}
-}
-
-function status(st) {
-  if (st.band === "connected") { light("lBand", "ok", "connected"); done(1); }
-  else if (st.band === "sim") { light("lBand", "ok", "pretend band"); done(1); }
-  else if (st.band) light("lBand", "bad", "not connected");
-  if (st.mode === "ask") { light("lMode", "ok", "asking (speak now)"); state.sawAsk = true; done(4); }
-  else if (st.mode) light("lMode", "", "listening");
-}
-
-function mic(m) {
-  status({ band: m.band, mode: m.mode });
-  if (m.arriving) { light("lMic", "ok", "sound arriving"); done(2); }
-  else if (m.band === "connected") light("lMic", "bad", "no sound!");
-  const db = m.db;
-  if (db == null) { $("micText").textContent = m.arriving ? "Sound arriving" : "No sound from the band"; $("meterBar").style.width = "0"; }
-  else {
-    const pct = Math.max(0, Math.min(100, (db + 60) / 45 * 100));      // -60 dB -> 0 %, -15 dB -> 100 %
-    $("meterBar").style.width = pct + "%";
-    $("micText").textContent = db > -38 ? "🗣 Talking (" + db.toFixed(0) + " dB)" : "🤫 Quiet (" + db.toFixed(0) + " dB)";
-  }
-  document.querySelector("#lMode").classList.toggle("speaking", !!m.speaking);
-  if (m.speaking) light("lMode", "ok", "Kin is talking 🔊");
+  const [label, cls] = who(row);
+  if (row.speaker !== "kin") { lastHeard = Date.now(); $("nowWho").textContent = label; $("now").textContent = row.text; $("now").classList.remove("muted"); }
+  const feed = $("feed");
+  if (feed.firstElementChild && feed.firstElementChild.classList.contains("muted")) feed.innerHTML = "";
+  const d = document.createElement("div"); d.className = "line " + cls;
+  const w = document.createElement("div"); w.className = "who " + cls; w.textContent = label;
+  const x = document.createElement("div"); x.textContent = row.text;
+  d.append(w, x); feed.prepend(d);
+  while (feed.children.length > 12) feed.lastChild.remove();
+  setStatus();
 }
 
 function connect() {
   const ws = new WebSocket((location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws");
   ws.onmessage = (ev) => {
     let e; try { e = JSON.parse(ev.data); } catch { return; }
-    if (e.table === "transcript") addMsg(e.row);
-    else if (e.table === "transcript_rated") rate(e.row);
-    else if (e.table === "mic") mic(e.row);
-    else if (e.table === "interim") { $("hearing").textContent = "“" + e.row.text + "…”"; $("hearing").classList.add("live"); }
-    else if (e.table === "status") status(e.row);
-    else if (["people", "todos", "items", "facts"].includes(e.table)) refreshMemory();
+    if (e.table === "transcript") add(e.row);
+    else if (e.table === "interim") { $("nowWho").textContent = "Hearing…"; $("now").textContent = e.row.text + "…"; $("now").classList.remove("muted"); }
+    else if (e.table === "mic") {
+      mic = e.row; mode = e.row.mode; band = e.row.band; speaking = e.row.speaking;
+      const pct = e.row.db == null ? 0 : Math.max(0, Math.min(100, (e.row.db + 60) / 50 * 100));
+      $("meter").style.width = pct + "%"; setStatus();
+    } else if (e.table === "status") { mode = e.row.mode || mode; band = e.row.band || band; setStatus(); }
   };
-  ws.onclose = () => { light("lBand", "bad", "Kin not running"); setTimeout(connect, 1500); };
+  ws.onclose = () => { band = ""; $("statusTitle").textContent = "Kin is not running"; $("status").className = "big bad"; setTimeout(connect, 1500); };
 }
 
+async function init() {
+  try {
+    const s = await (await fetch("/api/snapshot")).json();
+    wearer = (s.config && s.config.wearer) || wearer;
+    band = (s.status && s.status.band) || "";
+    s.transcript.slice(-12).forEach(add);
+  } catch (e) {}
+  setStatus(); connect(); setInterval(setStatus, 5000);
+}
 async function send(cmd) {
-  const r = await fetch("/api/command", { method: "POST", headers: { "Content-Type": "application/json" },
-                                          body: JSON.stringify({ cmd }) });
-  if (!r.ok) alert("Kin isn't running. Start it first.");
+  const r = await fetch("/api/command", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ cmd }) });
+  if (!r.ok) alert("Kin isn't running.");
 }
 document.querySelectorAll("button[data-cmd]").forEach((b) => b.onclick = () => send(b.dataset.cmd));
 $("askForm").onsubmit = (e) => { e.preventDefault(); const q = $("askInput").value.trim(); if (q) { send("a " + q); $("askInput").value = ""; } };
-$("sayForm").onsubmit = (e) => { e.preventDefault(); const q = $("sayInput").value.trim(); if (q) { send("1 " + q); $("sayInput").value = ""; } };
-
-refreshMemory(); connect();
+init();
 </script>
 </body>
 </html>
