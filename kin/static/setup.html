@@ -78,7 +78,13 @@
   <section class="step" id="stepVoice">
     <h2><span class="num">2</span>Their voice</h2>
     <p class="hint">10 seconds near the band so Kin always knows it's them. Kin also learns by itself, this just makes it reliable from the start.</p>
-    <div class="body" data-recorder="wearer"></div>
+    <div class="body">
+      <div id="voiceKnown" hidden style="display:flex;align-items:center;gap:12px;flex-wrap:wrap">
+        <span class="state ok" id="voiceKnownText"></span>
+        <button type="button" class="quiet" id="reRecord">Re-record</button>
+      </div>
+      <div data-recorder="wearer" id="wearerRecorder"></div>
+    </div>
   </section>
 
   <section class="step" id="stepContacts">
@@ -191,7 +197,12 @@ async function loadVoices() {
   try {
     const v = (await (await fetch("/api/voices")).json()).voices || [];
     const named = v.filter((x) => x.name);
-    $("stepVoice").classList.toggle("done", named.some((x) => x.role === "wearer"));
+    const me = named.find((x) => x.role === "wearer");
+    $("stepVoice").classList.toggle("done", !!me);
+    if (me && !window._reRecording) {
+      $("voiceKnown").hidden = false; $("wearerRecorder").hidden = true;
+      $("voiceKnownText").textContent = `✓ Kin knows ${me.name}'s voice (learned from ${me.n_samples} samples, and it keeps learning).`;
+    } else { $("voiceKnown").hidden = true; $("wearerRecorder").hidden = false; }
     $("voices").textContent = named.length ? "Voices Kin knows: " + named.map((x) => x.name + (x.role === "wearer" ? " (wears the band)" : x.role ? ` (${x.role})` : "")).join(", ") : "";
     $("stepFamily").classList.toggle("done", named.some((x) => x.role && x.role !== "wearer"));
   } catch (e) {}
@@ -218,6 +229,7 @@ function connect() {
   };
   ws.onclose = () => setTimeout(connect, 1500);
 }
+$("reRecord").onclick = () => { window._reRecording = true; $("voiceKnown").hidden = true; $("wearerRecorder").hidden = false; };
 loadSettings(); loadVoices(); connect();
 </script>
 </body>
