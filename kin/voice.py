@@ -308,6 +308,8 @@ How to answer:
   money, kindly tell them not to send anything until they've called that person back on a number they already
   know, or checked with family. Never help with gift cards, wire transfers or giving out card numbers.
 - When they say they've done a to-do, mark it done with complete_todo.
+- If they ask you to tell or message someone, use send_message (only that: it already alerts them), then confirm in a
+  few words ("Sent to Abigail.") and, if they're lost or scared, reassure them calmly.
 - When they TELL you something (where they put things, plans, news), it is saved automatically: just confirm
   briefly ("Got it, AirPods on the table."). Don't say you have no note of something they just told you.
 
@@ -361,7 +363,32 @@ def make_llm_parts(app):
             await params.llm.push_frame(TTSUpdateSettingsFrame(delta=type(tts).Settings(speed=new)))
         await params.result_callback({"speed": new, "range": "0.7 (slowest) to 1.2 (fastest)"})
 
+    async def send_message(params):
+        """'Tell Abigail I don't know where I am' -> a push notification to that emergency contact."""
+        from . import notify, settings
+        a = params.arguments
+        to = (a.get("to") or "").strip().lower()
+        text = (a.get("message") or "").strip()[:240]
+        urgent = bool(a.get("urgent"))
+        contacts = settings.contacts()
+        pick = [c for c in contacts if to and (to in c["name"].lower() or to in (c.get("relationship") or "").lower())]
+        targets = pick or contacts
+        if not targets or not text:
+            await params.result_callback({"sent": False, "reason": "no emergency contacts are set up" if not targets
+                                          else "empty message"})
+            return
+        title = f"Message from {config.WEARER_NAME}" + (" (needs help)" if urgent else "")
+        ok = await asyncio.to_thread(notify.send, title, text, 5 if urgent else 3,
+                                     "sos" if urgent else "speech_balloon", [c["topic"] for c in targets])
+        app._message_sent_at = time.time()                  # the message itself is the family alert: no second push
+        memory.add_alert("message",
+                         f"{config.WEARER_NAME} sent a message to {', '.join(c['name'] for c in targets)}: {text}")
+        await params.result_callback({"sent": ok, "to": [c["name"] for c in targets]})
+
     async def alert_family(params):
+        if time.time() - getattr(app, "_message_sent_at", 0) < 60:
+            await params.result_callback({"family_alerted": True, "note": "they already got his message"})
+            return
         reason = (params.arguments.get("reason") or "He may need help.")[:200]
         memory.add_alert("confused", f"{config.WEARER_NAME} sounded confused or unwell: {reason}")
         await params.result_callback({"family_alerted": True})
@@ -386,6 +413,12 @@ def make_llm_parts(app):
         FunctionSchema("set_speech_speed", "Change how fast Kin talks when they ask (slower, faster, or normal).",
                        {"change": {"type": "string", "enum": ["slower", "faster", "normal"]}}, ["change"],
                        handler=set_speech_speed),
+        FunctionSchema("send_message", "Send a short message from the wearer to an emergency contact's phone when they "
+                       "ask ('tell Abigail I'm running late', 'tell her I don't know where I am'). Write it in first "
+                       "person as the wearer would. urgent=true if it shows they need help (lost, hurt, scared).",
+                       {"to": {"type": "string", "description": "contact name or relationship; empty = everyone"},
+                        "message": {"type": "string"}, "urgent": {"type": "boolean"}}, ["message"],
+                       handler=send_message),
         FunctionSchema("alert_family", "Quietly let the family know he may need help, ONLY when what he says right "
                        "now shows he is confused, lost, unwell or frightened. Never because of earlier alerts or falls, "
                        "and never when he says he's fine.",

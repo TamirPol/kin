@@ -130,6 +130,9 @@
       d.push("Call him or go look for him.");
       return { tone: "bad", title: "He may have wandered off" + at, details: d };
     }
+    if (a.kind === "message") {
+      return { tone: /know where|lost|help|hurt|scared|fell/i.test(text) ? "bad" : "warn", title: "Message from him" + at, details: [cap(text.replace(/^.*?:\s*/, ""))] };
+    }
     if (a.kind === "confused") {
       return { tone: "bad", title: "He sounded confused" + at,
         details: ["Kin is keeping him calm.", "Please give him a call."] };
