@@ -74,7 +74,7 @@ class Kin:
     # ------------------------------------------------------------------ pipeline
     async def build(self):
         from pipecat.pipeline.pipeline import Pipeline
-        from pipecat.pipeline.task import PipelineParams, PipelineTask
+        from pipecat.pipeline.worker import PipelineParams, PipelineWorker
 
         self.source = voice.BandAudioSource()
         self.stt = voice.make_stt()
@@ -88,15 +88,13 @@ class Kin:
         parts += [self.tts, self.speaker]
         if self.llm:
             parts.append(self.ctx.assistant())
-        self.task = PipelineTask(Pipeline(parts),
+        self.task = PipelineWorker(Pipeline(parts),
                                  params=PipelineParams(audio_in_sample_rate=16000, audio_out_sample_rate=24000),
                                  cancel_on_idle_timeout=False)
 
     def refresh_system_prompt(self):
-        if self.ctx:
-            msgs = self.ctx.user().context.get_messages()
-            if msgs and msgs[0].get("role") == "system":
-                msgs[0]["content"] = voice.system_prompt()
+        if self.llm:                             # fresh memory in the system prompt before each question
+            self.llm._settings.system_instruction = voice.system_prompt()
 
     # ------------------------------------------------------------------ band
     async def connect_band(self):
@@ -576,11 +574,12 @@ class Kin:
 
     # ------------------------------------------------------------------ run
     async def run(self):
-        from pipecat.pipeline.runner import PipelineRunner
+        from pipecat.workers.runner import WorkerRunner
         await self.build()
         self.start_extras()
-        runner = PipelineRunner(handle_sigint=False)
-        run_task = asyncio.create_task(runner.run(self.task))
+        runner = WorkerRunner(handle_sigint=False)
+        await runner.add_workers(self.task)
+        run_task = asyncio.create_task(runner.run())
         await asyncio.sleep(0.5)
         await self.connect_band()
         self._quit = asyncio.Event()

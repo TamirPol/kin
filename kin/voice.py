@@ -205,6 +205,7 @@ def make_llm_parts(app):
     # gpt-6 models refuse tool calls on chat completions unless reasoning is off; it's also faster.
     llm = OpenAILLMService(api_key=config.OPENAI_API_KEY,
                            settings=OpenAILLMService.Settings(model=config.OPENAI_MODEL,
+                                                              system_instruction=system_prompt(),
                                                               extra={"reasoning_effort": "none"}))
 
     async def who_is(params):
@@ -245,7 +246,7 @@ def make_llm_parts(app):
                         "amount_cents": {"type": "integer"}}, ["item", "merchant", "amount_cents"],
                        handler=purchase),
     ]
-    context = LLMContext(messages=[{"role": "system", "content": system_prompt()}], tools=tools)
+    context = LLMContext(messages=[], tools=tools)
     return llm, LLMContextAggregatorPair(context)
 
 
