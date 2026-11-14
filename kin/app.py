@@ -738,6 +738,15 @@ class Kin:
             await self.router.speak(r.get("say") or "This sounds like a scam. Please don't send any money.")
 
     # ------------------------------------------------------------------ ask mode end
+    def speaker_stop(self):
+        try:
+            self.speaker.stop()
+        except Exception:
+            pass
+        p = getattr(self.tts, "_proc", None)
+        if p and p.poll() is None:
+            p.terminate()
+
     def hearing_kin(self, text: str) -> bool:
         """Echo gate: while Kin talks out loud (and a moment after), the band hears Kin's own voice. Drop those
         sentences, and anything that closely matches what Kin just said."""

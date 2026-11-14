@@ -33,6 +33,8 @@ FINE = _re.compile(r"\b(i'?m|i am|im)\s+(fine|ok(ay)?|alright|all right|good|not
                    r"^\W*(fine|okay|ok|all good|i'?m good)\W*$", _re.I)
 NOT_FINE = _re.compile(r"^\W*no\b|\bnot (fine|ok(ay)?|alright|all right|good)\b|\bhelp\b|\bi (fell|fall|can'?t get up)|"
                        r"\b(hurt|pain|bleeding|dizzy)\b|\bcall (someone|sarah|my|911|an ambulance)", _re.I)
+STOP = _re.compile(r"^\W*(?:(?:okay|ok|kin|hey kin)[\s,]+)?(stop|stop it|stop talking|be quiet|quiet|shush|shut up|enough|"
+                   r"that'?s enough|never ?mind|cancel|forget it)\W*$|\bstop talking\b|\bbe quiet\b|\bshut up\b", _re.I)
 FILLER = _re.compile(r"^\W*(yeah|yes|yep|yup|okay|ok|mm+|hmm+|uh+|um+|uh huh|right|sure|alright|cool|wow|oh)\W*$", _re.I)
 
 
@@ -110,6 +112,10 @@ class KinRouter(FrameProcessor):
 
     async def process_frame(self, frame: Frame, direction: FrameDirection):
         await super().process_frame(frame, direction)
+        if isinstance(frame, (TranscriptionFrame, InterimTranscriptionFrame)) and STOP.search(frame.text or "") \
+                and (self.app.speaking or self.app.mode == "ask"):
+            await self.stop_talking()                        # "stop" / "be quiet" works even mid-sentence
+            return
         if isinstance(frame, ErrorFrame) and direction == FrameDirection.UPSTREAM and self._last_q:
             q, self._last_q = self._last_q, ""               # the LLM failed: never leave the wearer hanging
             log.warning("LLM failed (%s); answering from memory.", str(frame.error)[:120])
@@ -144,6 +150,9 @@ class KinRouter(FrameProcessor):
 
     async def _on_sentence(self, speaker: str, text: str, name: str = ""):
         from .app import WAKE, CLOSERS
+        if STOP.search(text) and (self.app.speaking or self.app.mode == "ask"):
+            await self.stop_talking()
+            return
         woke = False                                         # "Hey Kin, ..." is always the wearer talking to Kin
         if self.app.fall_check_active() and NOT_FINE.search(text):
             await self.app.fall_not_ok(text)                 # "no / I'm not fine / help": family alerted now
@@ -195,7 +204,7 @@ class KinRouter(FrameProcessor):
 
     async def ask(self, question: str):
         log.info("ASK: %s", question)
-        memory.add_line("wearer", question, name=config.WEARER_NAME)
+        await self.app.heard("wearer", question, config.WEARER_NAME)   # also remembered (e.g. "I left my keys...")
         self.app.flag_money(question)                        # "should I send my son $5,000?" -> family alert
         self.app.publish_status(note=f"Question: {question}")
         if config.OPENAI_API_KEY:
@@ -209,6 +218,21 @@ class KinRouter(FrameProcessor):
                 messages=[{"role": "user", "content": question}], run_llm=True))
         else:
             await self.speak(rule_answer(question))
+
+    async def stop_talking(self):
+        """Cut Kin off right now and go back to quietly listening."""
+        log.info("Stopped by the wearer")
+        self._question = []
+        if self._ask_timer:
+            self._ask_timer.cancel()
+        self._last_q = ""
+        from pipecat.frames.frames import InterruptionFrame
+        await self.push_frame(InterruptionFrame())          # LLM + TTS drop what they were doing
+        self.app.speaker_stop()
+        self.app.mode = "listen"
+        self.app.speaking = False
+        self.app._spoke_at = time.time()
+        self.app.publish_status(note="Stopped")
 
     async def speak(self, text: str):
         """Say something without the LLM (fall check, scam warning, rule answers)."""
@@ -273,6 +297,8 @@ How to answer:
   money, kindly tell them not to send anything until they've called that person back on a number they already
   know, or checked with family. Never help with gift cards, wire transfers or giving out card numbers.
 - When they say they've done a to-do, mark it done with complete_todo.
+- When they TELL you something (where they put things, plans, news), it is saved automatically: just confirm
+  briefly ("Got it, AirPods on the table."). Don't say you have no note of something they just told you.
 
 What you remember:
 {memory}"""
@@ -424,7 +450,8 @@ class SayTTS(FrameProcessor):
         memory.add_line("kin", text, name="Kin")
         if shutil.which("say") and not getattr(self, "mute", False):
             rate = str(int(185 * getattr(self, "speed", _saved_speed())))
-            await asyncio.to_thread(subprocess.run, ["say", "-r", rate, text])
+            self._proc = subprocess.Popen(["say", "-r", rate, text])
+            await asyncio.to_thread(self._proc.wait)
         await self.push_frame(TTSStoppedFrame())
 
 
@@ -455,6 +482,16 @@ class Speaker(FrameProcessor):
                 memory.add_line("kin", text, name="Kin")
             self.app.done_speaking()
         await self.push_frame(frame, direction)
+
+    def stop(self):
+        """Silence now: abort whatever audio is still buffered."""
+        st, self._stream = self._stream, None
+        self._said = []
+        if st is not None:
+            try:
+                st.abort(); st.close()
+            except Exception:
+                pass
 
     def _play(self, frame: TTSAudioRawFrame):
         try:
