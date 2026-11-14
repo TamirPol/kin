@@ -220,7 +220,7 @@ class Kin:
     def _due_todo(self, force: bool = False) -> dict | None:
         now = time.time()
         for t in memory.todos():
-            if t["id"] in self._reminded:
+            if t["id"] in self._reminded or (t.get("reminded") or 0) > 0:
                 continue
             due = (t["due"] or "").lower()
             if force or any(w in due for w in DUE_NOW) or now - t["ts"] > REMIND_AFTER:
@@ -232,6 +232,7 @@ class Kin:
         if not t:
             return False
         self._reminded.add(t["id"])
+        memory.mark_reminded(t["id"])             # survives restarts: never the same reminder twice
         text = t["text"].rstrip(".")
         text = text[0].lower() + text[1:] if text[:1].isupper() and not text[:2].isupper() else text
         due = f" {t['due']}" if t["due"] and t["due"].lower() not in text.lower() else ""

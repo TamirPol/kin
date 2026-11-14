@@ -54,6 +54,9 @@ def db() -> sqlite3.Connection:
             _conn = sqlite3.connect(DB_PATH, check_same_thread=False)
             _conn.row_factory = sqlite3.Row
             _conn.executescript(SCHEMA)
+            cols = {r[1] for r in _conn.execute("PRAGMA table_info(todos)")}
+            if "reminded" not in cols:                  # added later: when Kin last reminded about it
+                _conn.execute("ALTER TABLE todos ADD COLUMN reminded REAL DEFAULT 0")
             _conn.commit()
         return _conn
 
@@ -168,6 +171,10 @@ def add_todo(text: str, due: str = "", person_id: int | None = None) -> int:
 
 def todos(open_only: bool = True) -> list[dict]:
     return _rows("SELECT * FROM todos " + ("WHERE done=0 " if open_only else "") + "ORDER BY ts DESC")
+
+
+def mark_reminded(tid: int) -> None:
+    _exec("UPDATE todos SET reminded=? WHERE id=?", (time.time(), tid))
 
 
 def finish_todo(tid: int) -> None:
