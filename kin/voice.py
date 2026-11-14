@@ -187,7 +187,7 @@ class KinRouter(FrameProcessor):
                 self.app._ask_started = time.time()
                 self.app.publish_status(note="Listening for your question")
                 woke = True
-                rest = m.group(1).strip()
+                rest = (m.group(1) or m.group(2) or "").strip()
                 if rest:
                     text = rest
                 else:

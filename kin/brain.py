@@ -77,7 +77,9 @@ Also extract:
   strangers, or anyone who might be a scammer (asking for money, gift cards, bail, secrecy) as people.
 - facts: short, plain sentences {wearer} would want recalled ("Sarah is moving to Oakland next week"),
   with `about` = the person's name or "".
-- todos: plans or promises {wearer} made or must remember ("Call the dentist", due "tomorrow").
+- todos: concrete real-world tasks {wearer} plans or promised to do ("Call the dentist", due "tomorrow").
+  NOT to-dos: requests to Kin or the wristband (talk slower, stop, volume, settings), hobbies or preferences
+  ("I like listening to music"), things read aloud or quoted, or vague/unclear fragments.
   Never turn a suspicious request (money, gift cards, bail, secrecy) into a to-do. Never make a to-do from asking
   Kin to tell/message/call someone ("Kin, tell Abigail I'll be late") - Kin does that right away.
 - items: where {wearer}'s things are, whoever put them there or said so ("keys" -> "kitchen drawer";

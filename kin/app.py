@@ -45,7 +45,7 @@ WANDER_RSSI = -88          # dBm: weaker than this means the band is far from th
 WANDER_SECONDS = float(__import__("os").environ.get("KIN_WANDER_SECONDS", "10"))  # weak signal this long -> alert (link lost: 3x)
 WEARER_MATCH = float(__import__("os").environ.get("KIN_WEARER_MATCH", "0.3"))  # voiceprint score that means "the wearer"
 CONVO_WINDOW = 9.0         # after Kin answers, keep listening this long for a follow-up
-WAKE = __import__("re").compile(r"^\W*(?:(?:hey|hi|okay|ok|hello)[\s,]+)?(?:kin|ken|kim|kinn|kenn)\b[\s,.!?]*(.*)$", __import__("re").I)
+WAKE = __import__("re").compile(r"^\W*(?:(?:hey|hi|okay|ok|hello)[\s,]+)?(?:kin|ken|kim|kinn|kenn|kin's)\b[\s,.!?]*(.*)$|^\W*(?:hicken|hikin|hikken|heykin|heyken|hey-kin|a kin|ay kin)\b[\s,.!?]*(.*)$", __import__("re").I)
 CLOSERS = __import__("re").compile(r"\b(thank you|thanks|thank u|bye|goodbye|that'?s all|that'?s it|never ?mind|ok(?:ay)? cool|got it)\b", __import__("re").I)
 DUE_NOW = ("today", "tonight", "this morning", "this afternoon", "this evening", "now", "soon")
 
