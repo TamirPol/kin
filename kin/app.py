@@ -48,8 +48,10 @@ WANDER_RSSI = -88          # dBm: weaker than this means the band is far from th
 WANDER_SECONDS = float(__import__("os").environ.get("KIN_WANDER_SECONDS", "10"))  # weak signal this long -> alert (link lost: 3x)
 WEARER_MATCH = float(__import__("os").environ.get("KIN_WEARER_MATCH", "0.3"))  # voiceprint score that means "the wearer"
 OBVIOUS_OTHER = float(__import__("os").environ.get("KIN_OBVIOUS_OTHER", "0.6"))  # match to ANOTHER voice this strong = clearly not the wearer
-CONVO_WINDOW = 9.0         # after Kin answers, keep listening this long for a follow-up
-WAKE = __import__("re").compile(r"^\W*(?:(?:hey|hi|okay|ok|hello)[\s,]+)?(?:kin|ken|kim|kinn|kenn|kin's)\b[\s,.!?]*(.*)$|^\W*(?:hicken|hikin|hikken|heykin|heyken|hey-kin|a kin|ay kin)\b[\s,.!?]*(.*)$", __import__("re").I)
+CONVO_WINDOW = 15.0         # after Kin answers, keep listening this long for a follow-up
+WAKE = __import__("re").compile(r"(?:^\W*(?:(?:hey|hi|okay|ok|hello|yo)[\s,]+)?(?:kin|ken|kim|kinn|kenn)\b|"
+                                r"\b(?:hey|hi|okay|ok|hello|yo)[\s,]+(?:kin|ken|kim|kinn|kenn)\b|"
+                                r"\b(?:hicken|hikin|hikken|heykin|heyken|hey-kin)\b)[\s,.!?]*(.*)$", __import__("re").I)
 CLOSERS = __import__("re").compile(r"\b(thank you|thanks|thank u|bye|goodbye|that'?s all|that'?s it|never ?mind|ok(?:ay)? cool|got it)\b", __import__("re").I)
 DUE_NOW = ("today", "tonight", "this morning", "this afternoon", "this evening", "now", "soon")
 
@@ -185,8 +187,9 @@ class Kin:
         except Exception as e:
             log.warning("No Opus decoder (pip install av): %s", e)
         self.band.on("audio", self._on_audio)
-        self.band.on("double-tap", self._on_double_tap)
-        self.band.on("tap", self._on_tap)              # two quick single taps also count (fabric muffles taps)
+        if os.environ.get("KIN_TAPS", "off").lower() in ("on", "1", "true"):
+            self.band.on("double-tap", self._on_double_tap)    # off by default: snaps and bumps trigger it;
+            self.band.on("tap", self._on_tap)                  # "Hey Kin" is the way to talk to Kin
         self.band.on("free-fall", self._on_fall)
         self.band.on("disconnect", self._on_disconnect)
         self.band.on("reconnected", lambda e: self._set_band("connected"))
@@ -199,12 +202,13 @@ class Kin:
         except Exception as e:
             log.info("mic gain unchanged: %s", e)
         await self.band.configure(audio=True, events=True)     # light goes solid blue: mic is on
-        try:                                                   # impact-based fall detection: accelerometer 50 Hz,
-            await self.band.set_motion(accel_range=8)          # 8 g range (the default 2 g clips every impact)
-            await self.band.configure(motion=50, sensors="accel")
-            self.band.on("motion", self._on_motion)
-        except Exception as e:
-            log.info("No motion stream (falls use the band's free-fall event only): %s", e)
+        if os.environ.get("KIN_MOTION_FALLS", "off").lower() in ("on", "1", "true"):
+            try:                                               # impact-based fall detection (off by default: finger
+                await self.band.set_motion(accel_range=8)      # snaps and taps look just like impacts on this band)
+                await self.band.configure(motion=50, sensors="accel")
+                self.band.on("motion", self._on_motion)
+            except Exception as e:
+                log.info("No motion stream: %s", e)
         if self.band.transport_kind in ("ble", "sim"):
             try:
                 await self.band.configure(link=True)           # signal strength once a second (wander alert)
@@ -493,7 +497,7 @@ class Kin:
         memory.add_alert("fall", f"Possible fall detected for {config.WEARER_NAME}. Checking in.")
         self.publish_status(note="Possible fall: checking in")
         self._fall_listening = False                        # taps from the impact itself don't count
-        await self.router.speak("Are you okay? Tell me if you're alright, or double-tap your band.")
+        await self.router.speak("Are you okay? Tell me if you're alright.")
         t0 = time.time()
         await asyncio.sleep(0.5)
         while self.speaking and time.time() - t0 < 10:      # the countdown starts once the question is heard
@@ -851,7 +855,7 @@ class Kin:
             return True                                 # it's Kin's own sentence coming back through the band
         if self.speaking or time.time() - getattr(self, "_spoke_at", 0) < 0.9:
             from .voice import FINE, NOT_FINE, STOP
-            if FINE.search(text) or NOT_FINE.search(text) or STOP.search(text) or WAKE.match(text):
+            if FINE.search(text) or NOT_FINE.search(text) or STOP.search(text) or WAKE.search(text):
                 return False                            # the wearer answering / interrupting: always let it through
             return True
         last = (getattr(self, "_last_said", "") or "").lower()
@@ -937,9 +941,9 @@ class Kin:
         cmd, _, rest = line.partition(" ")
         if cmd in ("t", "f"):
             kind = "double-tap" if cmd == "t" else "free-fall"
-            if self.sim:
+            if self.sim and cmd == "f":
                 self.sim.tap(kind)               # goes through the band's real event path
-            elif cmd == "t":
+            elif cmd == "t":                     # taps are off on the band; the typed/test-page tap still works
                 await self._on_double_tap()
             else:
                 await self._on_fall()
