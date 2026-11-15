@@ -37,6 +37,8 @@ log = logging.getLogger("kin")
 CHUNK_PAUSE = 6.0          # seconds of quiet that end a conversation chunk
 CHUNK_MAX = 30.0           # digest at least this often while people keep talking
 WEARER_MARGIN_DB = 4.0     # the wearer's voice must be this much louder (median) than the next voice
+IMPACT_G = float(__import__("os").environ.get("KIN_IMPACT_G", "2.5"))     # a jolt this hard may be a fall
+STILL_AFTER = float(__import__("os").environ.get("KIN_STILL_AFTER", "0.3"))  # avg |g-1| after it: lying still
 FALL_WAIT = 10.0           # seconds to answer the fall check, counted after Kin has asked
 REMIND_AFTER = float(__import__("os").environ.get("KIN_REMIND_AFTER", "600"))  # remind of a to-do this long after it was made
 REMIND_QUIET = 20.0        # only remind when nobody has spoken for this long
@@ -72,6 +74,7 @@ class Kin:
         self._enroll_buf: list[bytes] = []
         self._last_tap = 0.0
         self._ask_started = 0.0
+        self._motion: deque = deque(maxlen=400)   # (time, |acceleration| in g) for impact detection
         self._closing = False                     # the wearer said thanks/bye: end after this answer
         self.answered_once = False                # in this conversation: later turns must sound like the wearer
         self._chunk: list[dict] = []
@@ -194,6 +197,12 @@ class Kin:
         except Exception as e:
             log.info("mic gain unchanged: %s", e)
         await self.band.configure(audio=True, events=True)     # light goes solid blue: mic is on
+        try:                                                   # impact-based fall detection: accelerometer 50 Hz,
+            await self.band.set_motion(accel_range=8)          # 8 g range (the default 2 g clips every impact)
+            await self.band.configure(motion=50, sensors="accel")
+            self.band.on("motion", self._on_motion)
+        except Exception as e:
+            log.info("No motion stream (falls use the band's free-fall event only): %s", e)
         if self.band.transport_kind in ("ble", "sim"):
             try:
                 await self.band.configure(link=True)           # signal strength once a second (wander alert)
@@ -415,6 +424,7 @@ class Kin:
         """The band's own double-tap detection struggles through the strap's fabric; two single taps within
         0.8 s count as a double-tap too."""
         now = time.time()
+        self._tap_seen = now
         if now - getattr(self, "_single_tap_t", 0) < 0.6:
             self._single_tap_t = 0.0
             await self._on_double_tap(e)
@@ -423,6 +433,7 @@ class Kin:
 
     async def _on_double_tap(self, e=None):
         now = time.time()
+        self._tap_seen = now
         log.info("(band: double-tap)")
         if now - self._last_tap < 2.0:              # one gesture, several events: ignore repeats
             return
@@ -441,6 +452,31 @@ class Kin:
         else:
             self.mode = "listen"
             self.publish_status()
+
+    def _on_motion(self, e):
+        """Impact then stillness = a fall while WEARING the band (the band's free-fall event only fires when the
+        band itself drops). A spike over IMPACT_G, not right after a tap, then ~1.5 s of a fairly still wrist."""
+        ax, ay, az = getattr(e, "ax", None), getattr(e, "ay", None), getattr(e, "az", None)
+        if ax is None:
+            return
+        g = (ax * ax + ay * ay + az * az) ** 0.5
+        now = time.time()
+        self._motion.append((now, g))
+        if (g >= IMPACT_G and now - getattr(self, "_tap_seen", 0) > 1.5 and not self.fall_check_active()
+                and now - getattr(self, "_impact_t", 0) > 20):
+            self._impact_t = now
+            asyncio.create_task(self._impact_then_still(now, g))
+
+    async def _impact_then_still(self, t0: float, peak: float):
+        await asyncio.sleep(2.4)
+        after = [g for t, g in self._motion if t0 + 0.7 <= t <= t0 + 2.4]
+        if len(after) < 20:
+            return
+        movement = sum(abs(g - 1.0) for g in after) / len(after)
+        log.info("(motion: impact %.1f g, then movement %.2f)", peak, movement)
+        if movement < STILL_AFTER and not self.fall_check_active():
+            log.warning("Fall detected from motion (impact %.1f g, then still)", peak)
+            await self._on_fall()
 
     async def _on_fall(self, e=None):
         if self._fall_task and not self._fall_task.done():
