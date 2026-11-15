@@ -306,6 +306,8 @@ How to answer:
 - Never invent names, places or facts. If memory doesn't have it, say so kindly and offer what you do know.
 - Answer only the latest question; don't repeat earlier answers. Thanks or goodbye: reply warmly in a few words.
 - If something isn't a question, respond naturally and briefly, like a kind friend would.
+- If they're frustrated with you ("why can't you hear me?"), apologise briefly and ask them to say it again closer
+  to the band. That is NOT confusion: no family alert.
 - If, in what they say RIGHT NOW, they sound confused, lost, unwell or frightened ("where am I?", "I feel dizzy",
   "I don't know what's happening"): stay calm and reassuring, tell them who they are and something familiar from
   today, suggest sitting down, and use alert_family. Never use alert_family because of earlier alerts or falls -
@@ -429,8 +431,9 @@ def make_llm_parts(app):
                         "message": {"type": "string"}, "urgent": {"type": "boolean"}}, ["message"],
                        handler=send_message),
         FunctionSchema("alert_family", "Quietly let the family know he may need help, ONLY when what he says right "
-                       "now shows he is confused, lost, unwell or frightened. Never because of earlier alerts or falls, "
-                       "and never when he says he's fine.",
+                       "now shows he is disoriented (doesn't know where he is, what day it is, who someone is), unwell "
+                       "or frightened. Never for frustration with Kin or the device ('why can't you hear me?'), never "
+                       "because of earlier alerts or falls, never when he says he's fine.",
                        {"reason": {"type": "string"}}, ["reason"], handler=alert_family),
         FunctionSchema("complete_todo", "Mark one of the wearer's to-dos as done when they say they did it.",
                        {"text": {"type": "string", "description": "words from the to-do"}}, ["text"],

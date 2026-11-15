@@ -37,7 +37,8 @@ log = logging.getLogger("kin")
 CHUNK_PAUSE = 6.0          # seconds of quiet that end a conversation chunk
 CHUNK_MAX = 30.0           # digest at least this often while people keep talking
 WEARER_MARGIN_DB = 4.0     # the wearer's voice must be this much louder (median) than the next voice
-IMPACT_G = float(__import__("os").environ.get("KIN_IMPACT_G", "2.5"))     # a jolt this hard may be a fall
+IMPACT_G = float(__import__("os").environ.get("KIN_IMPACT_G", "3.0"))     # a jolt this hard may be a fall
+DIP_G = float(__import__("os").environ.get("KIN_DIP_G", "0.6"))           # ...if just before it the wrist dropped (low g)
 STILL_AFTER = float(__import__("os").environ.get("KIN_STILL_AFTER", "0.3"))  # avg |g-1| after it: lying still
 FALL_WAIT = 10.0           # seconds to answer the fall check, counted after Kin has asked
 REMIND_AFTER = float(__import__("os").environ.get("KIN_REMIND_AFTER", "600"))  # remind of a to-do this long after it was made
@@ -454,15 +455,17 @@ class Kin:
             self.publish_status()
 
     def _on_motion(self, e):
-        """Impact then stillness = a fall while WEARING the band (the band's free-fall event only fires when the
-        band itself drops). A spike over IMPACT_G, not right after a tap, then ~1.5 s of a fairly still wrist."""
+        """A fall while WEARING the band (the band's free-fall event only fires when the band itself drops):
+        a brief low-g dip (falling), then an impact over IMPACT_G, not right after a tap, then ~1.5 s of a fairly
+        still wrist. Standing up or sitting down has the jolt but not the dip."""
         ax, ay, az = getattr(e, "ax", None), getattr(e, "ay", None), getattr(e, "az", None)
         if ax is None:
             return
         g = (ax * ax + ay * ay + az * az) ** 0.5
         now = time.time()
         self._motion.append((now, g))
-        if (g >= IMPACT_G and now - getattr(self, "_tap_seen", 0) > 1.5 and not self.fall_check_active()
+        dropped = any(gg <= DIP_G for tt, gg in self._motion if now - 1.2 <= tt < now - 0.02)   # falling phase
+        if (g >= IMPACT_G and dropped and now - getattr(self, "_tap_seen", 0) > 1.5 and not self.fall_check_active()
                 and now - getattr(self, "_impact_t", 0) > 20):
             self._impact_t = now
             asyncio.create_task(self._impact_then_still(now, g))
