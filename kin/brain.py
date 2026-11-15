@@ -52,8 +52,11 @@ SCHEMA = {
 }
 
 PROMPT = """You are the memory of {wearer}, a person with early memory loss who wears a listening wristband.
-Below is a short piece of conversation heard by the band. "wearer" is {wearer}; other speakers are
-labelled "speaker N", with a name when we already know who they are.
+Below is a short piece of conversation heard by the band. Speaker labels ("wearer", "speaker N", names) are only
+GUESSES from voice and loudness in a noisy room: decide who really said each line from the conversation itself
+(someone saying "Hi Dad" or "Grandpa" is not {wearer}; "I'll call the dentist" is probably {wearer}). Anything said
+for {wearer} counts, whoever says it: "Joe, you need to pick up your pills" or "Hey Kin, remind Dad to call Roy" is
+a to-do for {wearer}.
 
 Decide what is worth remembering FOR {wearer}. Drop only pure pleasantries (greetings, "how are you",
 weather chat, filler). KEEP anything concrete or objective about anyone, including {wearer} himself:
@@ -77,7 +80,8 @@ Also extract:
   strangers, or anyone who might be a scammer (asking for money, gift cards, bail, secrecy) as people.
 - facts: short, plain sentences {wearer} would want recalled ("Sarah is moving to Oakland next week"),
   with `about` = the person's name or "".
-- todos: concrete real-world tasks {wearer} plans or promised to do ("Call the dentist", due "tomorrow").
+- todos: concrete real-world tasks {wearer} plans or promised to do ("Call the dentist", due "tomorrow"), written as
+  {wearer} would say them to himself ("Pick up my pills from Walgreens", not "Pick up Dad's pills").
   NOT to-dos: requests to Kin or the wristband (talk slower, stop, volume, settings), hobbies or preferences
   ("I like listening to music"), things read aloud or quoted, or vague/unclear fragments.
   Never turn a suspicious request (money, gift cards, bail, secrecy) into a to-do. Never make a to-do from asking

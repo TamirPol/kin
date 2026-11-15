@@ -47,6 +47,7 @@ REMIND_MIN_AGE = float(__import__("os").environ.get("KIN_REMIND_MIN_AGE", "600")
 WANDER_RSSI = -88          # dBm: weaker than this means the band is far from the laptop/base
 WANDER_SECONDS = float(__import__("os").environ.get("KIN_WANDER_SECONDS", "10"))  # weak signal this long -> alert (link lost: 3x)
 WEARER_MATCH = float(__import__("os").environ.get("KIN_WEARER_MATCH", "0.3"))  # voiceprint score that means "the wearer"
+OBVIOUS_OTHER = float(__import__("os").environ.get("KIN_OBVIOUS_OTHER", "0.6"))  # match to ANOTHER voice this strong = clearly not the wearer
 CONVO_WINDOW = 9.0         # after Kin answers, keep listening this long for a follow-up
 WAKE = __import__("re").compile(r"^\W*(?:(?:hey|hi|okay|ok|hello)[\s,]+)?(?:kin|ken|kim|kinn|kenn|kin's)\b[\s,.!?]*(.*)$|^\W*(?:hicken|hikin|hikken|heykin|heyken|hey-kin|a kin|ay kin)\b[\s,.!?]*(.*)$", __import__("re").I)
 CLOSERS = __import__("re").compile(r"\b(thank you|thanks|thank u|bye|goodbye|that'?s all|that'?s it|never ?mind|ok(?:ay)? cool|got it)\b", __import__("re").I)
@@ -598,9 +599,11 @@ class Kin:
 
         # One simple question: is this the wearer's voice, yes or no? (Names of others come from what is said.)
         if fresh and wearer_known:
-            # the closest known voice is the wearer's: yes, even if the match is a bit weak in a noisy room
-            is_wearer = bool((m.get("is_wearer") or m.get("role") == "wearer") and score >= WEARER_MATCH)
-            why = [f"voiceprint {'matches' if is_wearer else 'does not match'} the wearer ({score:.2f})"]
+            # Labels are a hint, not a verdict: only call it someone else when it's VERY obvious (the voice clearly
+            # matches a different voice). The brain then uses conversational context to decide who said what.
+            other = not (m.get("is_wearer") or m.get("role") == "wearer")
+            is_wearer = not (other and score >= OBVIOUS_OTHER)
+            why = [f"voiceprint {'clearly someone else' if not is_wearer else 'probably the wearer'} ({score:.2f})"]
         elif fresh:                                           # no wearer voice yet: loudness decides, and teaches it
             is_wearer = loud_label == "wearer"
             why = ["no wearer voiceprint yet: loudness"]

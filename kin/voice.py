@@ -194,11 +194,7 @@ class KinRouter(FrameProcessor):
                 else:
                     await self.app.say_yes()
                     return
-        if self.app.mode == "ask" and speaker != "wearer" and not woke and (name or self.app.answered_once):
-            # confidently someone else (e.g. Sarah), or a follow-up that doesn't sound like the wearer:
-            # background chatter in a busy room. Remember it, but don't answer it.
-            await self.app.heard(speaker, text, name)
-            return
+        # Anyone may talk to Kin (family can say "Hey Kin, Joe needs to pick up his pills"): no voice filter here.
         if self.app.mode == "ask":
             if FILLER.match(text) and not self._question:
                 return                                       # "yeah" / "okay" / "mm" on its own isn't a question
