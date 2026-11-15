@@ -492,7 +492,7 @@ class Kin:
         memory.add_alert("fall", f"Possible fall detected for {config.WEARER_NAME}. Checking in.")
         self.publish_status(note="Possible fall: checking in")
         self._fall_listening = False                        # taps from the impact itself don't count
-        await self.router.speak("Are you okay? Say I'm fine, or double-tap your band.")
+        await self.router.speak("Are you okay? Tell me if you're alright, or double-tap your band.")
         t0 = time.time()
         await asyncio.sleep(0.5)
         while self.speaking and time.time() - t0 < 10:      # the countdown starts once the question is heard
@@ -841,7 +841,15 @@ class Kin:
     def hearing_kin(self, text: str) -> bool:
         """Echo gate: while Kin talks out loud (and a moment after), the band hears Kin's own voice. Drop those
         sentences, and anything that closely matches what Kin just said."""
+        import difflib
+        saying = (getattr(self, "_saying", "") or "").lower()
+        if saying and difflib.SequenceMatcher(None, saying, text.lower()).find_longest_match(
+                0, len(saying), 0, len(text)).size >= max(8, int(len(text) * 0.6)):
+            return True                                 # it's Kin's own sentence coming back through the band
         if self.speaking or time.time() - getattr(self, "_spoke_at", 0) < 0.9:
+            from .voice import FINE, NOT_FINE, STOP
+            if FINE.search(text) or NOT_FINE.search(text) or STOP.search(text) or WAKE.match(text):
+                return False                            # the wearer answering / interrupting: always let it through
             return True
         last = (getattr(self, "_last_said", "") or "").lower()
         if last and time.time() - getattr(self, "_spoke_at", 0) < 6:

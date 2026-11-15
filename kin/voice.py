@@ -252,6 +252,7 @@ class KinRouter(FrameProcessor):
 
     async def speak(self, text: str):
         """Say something without the LLM (fall check, scam warning, rule answers)."""
+        self.app._saying = text                              # so its echo through the band can be recognised
         self.app.speaking = True
         self.app._spoke_at = time.time()
         await self.push_frame(TTSSpeakFrame(text))
@@ -555,6 +556,7 @@ class Speaker(FrameProcessor):
             await asyncio.to_thread(self._play, frame)
         elif isinstance(frame, TTSTextFrame):             # what the TTS actually spoke
             self._said.append(frame.text)
+            self.app._saying = " ".join(self._said)
         if isinstance(frame, (TTSStoppedFrame,)):
             text = " ".join(t.strip() for t in self._said if t.strip()).replace(" ,", ",").replace(" .", ".")
             self._said = []
